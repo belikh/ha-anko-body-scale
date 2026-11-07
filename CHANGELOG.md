@@ -13,6 +13,17 @@
 *   **Examples** in `examples/`: dashboard, weight-loss leaderboard and a
     pet-weighing script.
 
+### Changed
+
+*   **Impedance decode.** Captured frames show byte 13 is a raw code (0 with
+    no foot contact) and byte 14 is a status flag, not an ohm value split
+    across two bytes. The impedance sensor is now "Impedance (raw)" with no
+    unit, and events and pending measurements carry `impedance_raw` instead
+    of `impedance_ohm`. The raw code is still converted to ohms with an
+    assumed factor of 2.56 for the body-fat equation; those results carry
+    `method: bia_assumed`. A weigh-in with no foot contact is recorded with
+    BMI-based body fat.
+
 ## 1.2.1
 
 ### Added

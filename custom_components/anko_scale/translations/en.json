@@ -114,7 +114,7 @@
         "name": "Weight"
       },
       "impedance": {
-        "name": "Impedance"
+        "name": "Impedance (raw)"
       },
       "bmi": {
         "name": "BMI"

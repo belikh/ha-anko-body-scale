@@ -61,7 +61,7 @@ async def _setup(hass: HomeAssistant, entry: MockConfigEntry) -> AnkoScaleCoordi
 def _weigh(coordinator: AnkoScaleCoordinator, weight: float, t0: float = 100.0) -> None:
     """Feed three stable adverts one second apart."""
     for i in range(3):
-        coordinator.async_handle_reading(ScaleReading(weight, 500.0, True), t0 + i)
+        coordinator.async_handle_reading(ScaleReading(weight, 195, True), t0 + i)
 
 
 async def test_migration_v1_to_v2_keeps_entities(
@@ -139,7 +139,7 @@ async def test_weigh_in_single_event_and_person_sensors(
 
     _weigh(coordinator, 61.0)
     # Further stable adverts of the same weigh-in do not publish again.
-    coordinator.async_handle_reading(ScaleReading(61.1, 500.0, True), 104.0)
+    coordinator.async_handle_reading(ScaleReading(61.1, 195, True), 104.0)
     await hass.async_block_till_done()
 
     assert len(events) == 1
@@ -176,7 +176,7 @@ async def test_single_final_frame_published_after_timeout(
     events = []
     hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
 
-    coordinator.async_handle_reading(ScaleReading(84.5, 480.0, True), 100.0)
+    coordinator.async_handle_reading(ScaleReading(84.5, 190, True), 100.0)
     await hass.async_block_till_done()
     assert events == []
 
@@ -354,11 +354,11 @@ async def test_fake_advert_stream_yields_one_weigh_in(
         (50.0, None, False),
         (58.0, None, False),
         (60.8, None, False),
-        (60.9, 520.0, True),
-        (61.3, 521.0, True),  # jitter inside the 0.5 kg spread
-        (61.1, 519.0, True),
-        (61.1, 519.0, True),
-        (61.2, 519.0, True),
+        (60.9, 200, True),
+        (61.3, 200, True),  # jitter inside the 0.5 kg spread
+        (61.1, 199, True),
+        (61.1, 199, True),
+        (61.2, 199, True),
     ]
     for i, (weight, impedance, stable) in enumerate(stream):
         coordinator.async_handle_reading(
@@ -511,3 +511,32 @@ async def test_capture_times_out_cleanly(
         await coordinator.async_capture_measurement(0)
     # A later capture is not blocked by the failed one.
     assert coordinator._capture is None
+
+
+async def test_no_foot_contact_weigh_in_uses_bmi_route(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    entry = _entry(2, {"persons": [ALICE, BOB]})
+    coordinator = await _setup(hass, entry)
+    events = []
+    hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
+
+    for i in range(3):
+        coordinator.async_handle_reading(ScaleReading(61.0, None, True), 100.0 + i)
+    await hass.async_block_till_done()
+
+    assert len(events) == 1
+    assert events[0].data["impedance_raw"] is None
+    state = hass.states.get("sensor.alice_body_fat")
+    assert state.attributes["method"] == "bmi"
+
+
+async def test_contact_weigh_in_uses_assumed_bia_route(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    entry = _entry(2, {"persons": [ALICE, BOB]})
+    coordinator = await _setup(hass, entry)
+    _weigh(coordinator, 61.0)  # raw code 195 -> assumed 499 ohm
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.alice_body_fat")
+    assert state.attributes["method"] == "bia_assumed"

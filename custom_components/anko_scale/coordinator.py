@@ -52,7 +52,7 @@ from .const import (
     SETTLE_TIMEOUT_S,
     SETTLE_WINDOW_S,
 )
-from .parser import ScaleReading, parse_manufacturer_data
+from .parser import ScaleReading, assumed_ohms, parse_manufacturer_data
 from .store import AnkoScaleStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class PersonState:
     """Latest attributed measurement for one person."""
 
     weight_kg: float | None = None
-    impedance_ohm: float | None = None
+    impedance_raw: float | None = None
     metrics: dict[str, float] = field(default_factory=dict)
     measured_at: datetime | None = None
 
@@ -84,7 +84,7 @@ class PendingMeasurement:
 
     pending_id: str
     weight_kg: float
-    impedance_ohm: float
+    impedance_raw: float | None
     timestamp: datetime
     candidates: list[dict[str, Any]]
     reason: str = "ambiguous"
@@ -94,7 +94,7 @@ class PendingMeasurement:
         return {
             "pending_id": self.pending_id,
             "weight_kg": self.weight_kg,
-            "impedance_ohm": self.impedance_ohm,
+            "impedance_raw": self.impedance_raw,
             "timestamp": self.timestamp.isoformat(),
             "candidates": self.candidates,
             "reason": self.reason,
@@ -106,7 +106,11 @@ class PendingMeasurement:
         return cls(
             pending_id=data["pending_id"],
             weight_kg=float(data["weight_kg"]),
-            impedance_ohm=float(data["impedance_ohm"]),
+            impedance_raw=(
+                float(data["impedance_raw"])
+                if data.get("impedance_raw") is not None
+                else None
+            ),
             timestamp=datetime.fromisoformat(data["timestamp"]),
             candidates=list(data.get("candidates", [])),
             reason=str(data.get("reason", "ambiguous")),
@@ -117,7 +121,7 @@ class PendingMeasurement:
 class _Frame:
     at: float
     weight_kg: float
-    impedance_ohm: float
+    impedance_raw: float | None
 
 
 @dataclass
@@ -126,7 +130,7 @@ class _LastMeasurement:
 
     profile_id: str
     weight_kg: float
-    impedance_ohm: float
+    impedance_raw: float | None
     timestamp: datetime
     prev_state: PersonState
     prev_history: list[float]
@@ -292,7 +296,7 @@ class AnkoScaleCoordinator:
                     "time": dt_util.utcnow().isoformat(timespec="seconds"),
                     "hex": self.last_raw_hex,
                     "weight_kg": reading.weight_kg,
-                    "impedance_ohm": reading.impedance_ohm,
+                    "impedance_raw": reading.impedance_raw,
                     "stable": reading.stable,
                     "rssi": service_info.rssi,
                 }
@@ -306,10 +310,10 @@ class AnkoScaleCoordinator:
         self.frame_count += 1
         self._cancel_settle_timer()
 
-        if reading.stable and reading.impedance_ohm:
+        if reading.stable:
             self.stable_frame_count += 1
             self._add_stable_frame(
-                _Frame(now, reading.weight_kg, reading.impedance_ohm)
+                _Frame(now, reading.weight_kg, reading.impedance_raw)
             )
         else:
             self._buffer.clear()
@@ -359,7 +363,8 @@ class AnkoScaleCoordinator:
     def _finalise_buffer(self) -> None:
         frames = self._buffer[-SETTLE_FRAMES:]
         weight = round(statistics.fmean(f.weight_kg for f in frames), 2)
-        impedance = round(statistics.fmean(f.impedance_ohm for f in frames), 1)
+        raws = [f.impedance_raw for f in frames if f.impedance_raw is not None]
+        impedance = round(statistics.fmean(raws), 1) if raws else None
         self._finalised = True
         self._handle_weigh_in(weight, impedance, dt_util.utcnow())
 
@@ -391,7 +396,7 @@ class AnkoScaleCoordinator:
         return self._active_force()
 
     def _handle_weigh_in(
-        self, weight_kg: float, impedance_ohm: float, timestamp: datetime
+        self, weight_kg: float, impedance_raw: float | None, timestamp: datetime
     ) -> None:
         if self._capture is not None and not self._capture.done():
             self._capture.set_result(
@@ -418,13 +423,13 @@ class AnkoScaleCoordinator:
             self._publish(
                 result.profile_id,
                 weight_kg,
-                impedance_ohm,
+                impedance_raw,
                 timestamp,
                 confidence_for(result, self.margin_kg),
                 result.reason,
             )
         else:
-            self._add_pending(weight_kg, impedance_ohm, timestamp, result)
+            self._add_pending(weight_kg, impedance_raw, timestamp, result)
         self._notify()
 
     def _profile(self, profile_id: str) -> PersonProfile:
@@ -441,7 +446,7 @@ class AnkoScaleCoordinator:
         self,
         profile_id: str,
         weight_kg: float,
-        impedance_ohm: float,
+        impedance_raw: float | None,
         timestamp: datetime,
         confidence: float,
         source: str,
@@ -449,7 +454,7 @@ class AnkoScaleCoordinator:
         profile = self._profile(profile_id)
         metrics = body_metrics.calculate_metrics(
             weight_kg=weight_kg,
-            impedance_ohm=impedance_ohm,
+            impedance_ohm=assumed_ohms(impedance_raw),
             height_cm=profile.height_cm,
             age=profile.current_age(dt_util.now().date()),
             sex=profile.sex,
@@ -459,13 +464,13 @@ class AnkoScaleCoordinator:
         self._last_measurement = _LastMeasurement(
             profile_id,
             weight_kg,
-            impedance_ohm,
+            impedance_raw,
             timestamp,
             previous_state,
             previous_history,
         )
         self.person_states[profile_id] = PersonState(
-            weight_kg, impedance_ohm, metrics, timestamp
+            weight_kg, impedance_raw, metrics, timestamp
         )
         self.history[profile_id], _ = update_expected_weight(
             previous_history, weight_kg, self.history_size
@@ -481,7 +486,7 @@ class AnkoScaleCoordinator:
                 "person_id": profile_id,
                 "person_name": profile.display_name,
                 "weight_kg": weight_kg,
-                "impedance_ohm": impedance_ohm,
+                "impedance_raw": impedance_raw,
                 "confidence": confidence,
                 "source": source,
                 "timestamp": timestamp.isoformat(),
@@ -493,7 +498,7 @@ class AnkoScaleCoordinator:
     def _add_pending(
         self,
         weight_kg: float,
-        impedance_ohm: float,
+        impedance_raw: float | None,
         timestamp: datetime,
         result: Attribution,
     ) -> None:
@@ -504,7 +509,7 @@ class AnkoScaleCoordinator:
         pending = PendingMeasurement(
             secrets.token_hex(4),
             weight_kg,
-            impedance_ohm,
+            impedance_raw,
             timestamp,
             candidates,
             result.reason,
@@ -518,7 +523,7 @@ class AnkoScaleCoordinator:
                 "entry_id": self.entry.entry_id,
                 "pending_id": pending.pending_id,
                 "weight_kg": weight_kg,
-                "impedance_ohm": impedance_ohm,
+                "impedance_raw": impedance_raw,
                 "candidates": candidates,
                 "reason": result.reason,
                 "timestamp": timestamp.isoformat(),
@@ -664,7 +669,7 @@ class AnkoScaleCoordinator:
         self._publish(
             profile_id,
             pending.weight_kg,
-            pending.impedance_ohm,
+            pending.impedance_raw,
             pending.timestamp,
             1.0,
             "assigned",
@@ -693,7 +698,7 @@ class AnkoScaleCoordinator:
         self._publish(
             profile_id,
             last.weight_kg,
-            last.impedance_ohm,
+            last.impedance_raw,
             last.timestamp,
             1.0,
             "reassigned",
@@ -746,7 +751,7 @@ class AnkoScaleCoordinator:
                 pid: {
                     "history": self.history.get(pid, []),
                     "last_measurement": _iso(self.last_measured.get(pid)),
-                    "last_impedance": self.person_states[pid].impedance_ohm,
+                    "last_impedance_raw": self.person_states[pid].impedance_raw,
                 }
                 for pid in self.person_states
             },

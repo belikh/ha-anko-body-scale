@@ -7,6 +7,9 @@ body fat is estimated from BMI instead. The result carries
 ``bia_valid`` (1.0 for the impedance route, 0.0 for the BMI route) so
 callers can tell which one produced the numbers.
 
+The impedance passed in for the ANKO iF1012D is an assumed value: the
+scale sends a raw code, and its conversion to ohms has not been calibrated.
+
 References:
   - FFM from foot-to-foot impedance: Wu et al., "Predicting body
     composition using foot-to-foot bioelectrical impedance analysis in
@@ -74,7 +77,7 @@ def _deurenberg_body_fat(bmi: float, age: int, is_male: bool) -> float:
 
 def calculate_metrics(
     weight_kg: float,
-    impedance_ohm: float,
+    impedance_ohm: float | None,
     height_cm: float,
     age: int,
     sex: str,
@@ -87,7 +90,8 @@ def calculate_metrics(
 
     ffm: float | None = None
     if (
-        age >= WU_MIN_AGE
+        impedance_ohm is not None
+        and age >= WU_MIN_AGE
         and WU_MIN_IMPEDANCE_OHM <= impedance_ohm <= WU_MAX_IMPEDANCE_OHM
     ):
         candidate = _wu_ffm(weight_kg, impedance_ohm, height_cm, age, is_male)

@@ -94,3 +94,8 @@ def test_child_uses_child_bmi_formula() -> None:
     expected = 1.51 * bmi - 0.70 * 12 + 1.4
     assert metrics["bia_valid"] == 0.0
     assert metrics["body_fat_percent"] == round(expected, 1)
+
+
+def test_missing_impedance_uses_bmi_route() -> None:
+    metrics = calculate_metrics(70.0, None, 175, 30, "male")
+    assert metrics["bia_valid"] == 0.0

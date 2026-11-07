@@ -108,11 +108,11 @@ Scale device (`ANKO Body Scale`):
 | Platform | Entity | Category | Default | Description |
 |---|---|---|---|---|
 | `sensor` | Weight | — | enabled | Latest advert weight in kg |
-| `sensor` | Impedance | Diagnostic | **disabled** | Bioelectrical impedance in Ω |
+| `sensor` | Impedance (raw) | Diagnostic | **disabled** | Raw impedance code from the scale, no unit. 0 means the feet were not touching the pads. |
 | `sensor` | BMI … Ideal weight (max) | — | enabled | Metrics of the most recently assigned person (12 sensors, same list as below) |
 | `sensor` | Last person | — | enabled | Name of the person the last weigh-in went to |
 | `sensor` | Pending measurements | Diagnostic | enabled | Count of unassigned weigh-ins, with their IDs in attributes |
-| `binary_sensor` | Reading stable | Diagnostic | enabled | `on` when the latest advert carried a settled impedance |
+| `binary_sensor` | Reading stable | Diagnostic | enabled | `on` when the scale has finished measuring (status byte `0xA1`) |
 | `select` | Next person | — | enabled | One-shot manual assignment |
 
 Each person device has the same 14 sensors as the scale device (`sensor.<name>_weight`, `sensor.<name>_body_fat`, and so on), values from that person's last assigned weigh-in, plus a `button` **Weighing in**.
@@ -120,7 +120,7 @@ Each person device has the same 14 sensors as the scale device (`sensor.<name>_w
 | Sensor | Description |
 |---|---|
 | Weight | Weight in kg |
-| Impedance | Impedance in Ω (disabled by default) |
+| Impedance (raw) | Raw code from the scale (disabled by default) |
 | BMI | Body mass index |
 | Body fat | Percentage |
 | Fat mass | kg |
@@ -143,9 +143,11 @@ Each person device has the same 14 sensors as the scale device (`sensor.<name>_w
 | Body water | 73.2 % of fat-free mass | Pace & Rathbun, J Biol Chem 1945 |
 | Muscle mass, bone mass, visceral fat index, metabolic age | Heuristics. No published consumer-scale equation exists. | Treat as trends, not measurements |
 
-The impedance equation is used only when the impedance is between 325 and 735 Ω (the range Wu et al. observed), the person is 16 or older, and the result is between 50 % and 95 % of body weight. Otherwise body fat comes from BMI. Each body-composition sensor has a `method` attribute: `bia` or `bmi`.
+The scale does not report ohms. Byte 13 of its advert is a raw code that is 0 without foot contact and rose with body size in the frames captured so far (117 to 128 for a 61.5 kg man, 165 for a 71.65 kg man). The conversion to ohms is unknown, so the integration multiplies the code by 2.56 as an assumption (the scaling 1.x used). Results from that route carry `method: bia_assumed`. Treat them as provisional until the conversion is calibrated against known resistors.
 
-If your scale always reports `bmi`, its impedance is outside that range. Open an issue with a weigh-in, the weight and the body-fat figure the MovingLife app shows for it.
+The impedance equation is used only when the impedance is between 325 and 735 Ω (the range Wu et al. observed), the person is 16 or older, and the result is between 50 % and 95 % of body weight. Otherwise body fat comes from BMI. Each body-composition sensor has a `method` attribute: `bia_assumed` or `bmi`. With no foot contact (raw code 0) the weight is still recorded and the method is `bmi`.
+
+If a person always gets `bmi`, the assumed impedance is outside that range or the feet are missing the pads. Wet feet lower the reading; dry, bare feet on both pad pairs give the best contact.
 
 Foot-to-foot impedance gives an individual body-fat error of roughly ±5 percentage points.
 
@@ -170,14 +172,14 @@ All actions take an optional `config_entry_id`, needed only with more than one s
 person_id: jupiter
 person_name: Jupiter
 weight_kg: 81.2
-impedance_ohm: 512.4
+impedance_raw: 165        # raw code, empty when the feet missed the pads
 confidence: 1.0        # 0..1, lower when two people were close in weight
 source: weight_match   # weight_match, single_person, forced, assigned, reassigned
 timestamp: "2026-11-07T02:40:11+00:00"
 entry_id: 01KV25DSCCM1DXPM40CFMM4H0W
 ```
 
-`anko_scale_pending_measurement` fires when a reading cannot be assigned. It carries `pending_id`, `weight_kg`, `impedance_ohm`, `candidates` (person IDs with `distance_kg`) and `reason` (`ambiguous`, `no_match` or `no_eligible_person`).
+`anko_scale_pending_measurement` fires when a reading cannot be assigned. It carries `pending_id`, `weight_kg`, `impedance_raw`, `candidates` (person IDs with `distance_kg`) and `reason` (`ambiguous`, `no_match` or `no_eligible_person`).
 
 Example automation:
 

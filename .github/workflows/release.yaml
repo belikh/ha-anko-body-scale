@@ -23,7 +23,15 @@ jobs:
         id: changelog
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          body="$(awk -v ver="$tag" '
+          # A tag with a hyphen (1.3.0-rc.1) is a pre-release. Its notes come
+          # from the changelog section of the base version (1.3.0).
+          base="${tag%%-*}"
+          if [ "$base" != "$tag" ]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          body="$(awk -v ver="$base" '
             $0 == "## " ver { found=1; next }
             found && /^## / { exit }
             found { print }
@@ -40,6 +48,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body_path: release_body.md
+          prerelease: ${{ steps.changelog.outputs.prerelease == 'true' }}
           files: |
             custom_components/anko_scale/manifest.json
 
@@ -48,5 +57,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ steps.changelog.outputs.prerelease == 'true' }}
           files: |
             custom_components/anko_scale/manifest.json

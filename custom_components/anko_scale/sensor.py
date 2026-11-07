@@ -54,12 +54,11 @@ SENSOR_DESCRIPTIONS: tuple[AnkoScaleSensorDescription, ...] = (
     AnkoScaleSensorDescription(
         key="impedance",
         translation_key="impedance",
-        native_unit_of_measurement="Ω",
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        suggested_display_precision=1,
-        value_fn=lambda s: s.impedance_ohm,
+        suggested_display_precision=0,
+        value_fn=lambda s: s.impedance_raw,
     ),
     AnkoScaleSensorDescription(
         key="bmi",
@@ -230,7 +229,7 @@ class _AnkoRestoreSensor(SensorEntity, RestoreEntity):
             "impedance",
         ):
             return None
-        return {"method": "bia" if metrics["bia_valid"] else "bmi"}
+        return {"method": "bia_assumed" if metrics["bia_valid"] else "bmi"}
 
     async def async_added_to_hass(self) -> None:
         """Restore the last state and subscribe to new readings."""
@@ -264,7 +263,7 @@ class AnkoScaleSensor(_AnkoRestoreSensor):
         reading = self._coordinator.reading
         return PersonState(
             weight_kg=reading.weight_kg if reading else None,
-            impedance_ohm=reading.impedance_ohm if reading else None,
+            impedance_raw=reading.impedance_raw if reading else None,
             metrics=self._coordinator.metrics,
         )
 
