@@ -1,0 +1,85 @@
+name: Bug report
+description: Something does not work, shows the wrong value or stops working.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [troubleshooting list](https://github.com/belikh/ha-anko-body-scale#troubleshooting) and the [closed issues](https://github.com/belikh/ha-anko-body-scale/issues?q=is%3Aissue) first. Many BLE and scale quirks are already covered there.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I am on the latest release (Settings > Devices & services > ANKO Body Scale, or the update entity).
+          required: true
+        - label: I restarted Home Assistant after updating.
+          required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      placeholder: "1.0.0"
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.11.0"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - Home Assistant Marketplace
+        - HACS
+        - Manual copy into custom_components
+    validations:
+      required: true
+  - type: input
+    id: scale_model
+    attributes:
+      label: Scale model and Bluetooth details
+      description: "Example: ANKO iF1012D, advertised as IF_B7, Bluetooth address shown in Settings > Devices & services > Bluetooth (redact most of it if you like)."
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What you saw, and the entity involved (for example `sensor.anko_body_scale_weight`).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the scale state (on the floor, batteries, in range of the HA Bluetooth proxy) and whether the weight reading was stable.
+      placeholder: |
+        1. Step on the scale and wait for the stable reading
+        2. Check sensor.anko_body_scale_weight
+        3. Check sensor.anko_body_scale_body_fat
+    validations:
+      required: true
+  - type: textarea
+    id: debug_log
+    attributes:
+      label: Debug log
+      description: |
+        1. Open Settings > Devices & services > ANKO Body Scale and choose **Enable debug logging** from the three-dot menu.
+        2. Repeat the steps above.
+        3. Choose **Disable debug logging**. Your browser downloads `home-assistant_anko_scale_<date>.log`.
+        4. Drag that file into this box, or paste the lines around the problem.
+
+        The integration does not log health data beyond the scale's own advertisement. Read the file before posting — it can include your Bluetooth address.
+      placeholder: Drag the log file here.
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Bluetooth proxy / ESPHome Bluetooth setup, other apps that read the scale (MovingLife, nRF Connect), and whether the scale works in those apps.

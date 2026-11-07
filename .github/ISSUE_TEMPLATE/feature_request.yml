@@ -1,0 +1,28 @@
+name: Feature request
+description: Ask for a new entity, service or behavior.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: Describe the task in Home Assistant terms (an automation, a dashboard card, a voice command).
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: What you do today
+      description: The workaround you use now, if any.
+  - type: input
+    id: scale_model
+    attributes:
+      label: Scale model
+      placeholder: "ANKO iF1012D (IF_B7)"
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: Known scale or protocol detail
+      description: If you know the advertisement layout, a MovingLife / nRF Connect capture, or another Senssun-protocol integration that does this, paste it.

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting (README)
+    url: https://github.com/belikh/ha-anko-body-scale#troubleshooting
+    about: No scale found, stale readings and other known cases.
