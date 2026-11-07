@@ -3,7 +3,8 @@
 [![Add to Home Assistant](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=belikh&repository=ha-anko-body-scale&category=integration)
 
 A custom integration for the **ANKO iF1012D Bluetooth body scale** (advertised
-as `IF_B7`) in Home Assistant. It listens passively to the scale's BLE
+as `IF_B7`) in Home Assistant. ANKO is Kmart Australia's own brand, so this is
+the Kmart Bluetooth body scale. It listens passively to the scale's BLE
 advertisements — no connection, no polling, no cloud account — decodes weight,
 bioelectrical impedance and reading stability directly from the manufacturer
 data, and computes the full body-composition suite (body fat, muscle mass,
