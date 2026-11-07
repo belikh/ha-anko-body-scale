@@ -2,101 +2,183 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import logging
+from typing import Any
 
-from homeassistant.components import bluetooth
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.typing import ConfigType
 
-from . import body_metrics
-from .const import CONF_AGE, CONF_HEIGHT_CM, CONF_SEX, DOMAIN
-from .parser import ScaleReading, parse_manufacturer_data
+from .const import (
+    CONF_AGE,
+    CONF_DISPLAY_NAME,
+    CONF_HEIGHT_CM,
+    CONF_PERSONS,
+    CONF_PROFILE_ID,
+    CONF_SEX,
+    DEFAULT_AGE,
+    DEFAULT_HEIGHT_CM,
+    DEFAULT_SEX,
+    DOMAIN,
+    LEGACY_DISPLAY_NAME,
+    LEGACY_PROFILE_ID,
+    SERVICE_ASSIGN,
+    SERVICE_REASSIGN,
+    SERVICE_RESET_HISTORY,
+    SERVICE_SET_NEXT_PERSON,
+)
+from .coordinator import AnkoScaleCoordinator
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
+_LOGGER = logging.getLogger(__name__)
+
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.SELECT,
+]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+SERVICE_DISCARD = "discard_measurement"
+_ENTRY: dict[Any, Any] = {vol.Optional("config_entry_id"): cv.string}
+ASSIGN_SCHEMA = vol.Schema(
+    {**_ENTRY, vol.Required("pending_id"): cv.string, vol.Required("person_id"): str}
+)
+DISCARD_SCHEMA = vol.Schema({**_ENTRY, vol.Required("pending_id"): cv.string})
+PERSON_SCHEMA = vol.Schema({**_ENTRY, vol.Required("person_id"): cv.string})
+NEXT_PERSON_SCHEMA = vol.Schema({**_ENTRY, vol.Optional("person_id"): cv.string})
 
 
-class AnkoScaleCoordinator:
-    """Receives passive BLE adverts from the scale and computes body metrics."""
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialise the coordinator for one config entry."""
-        self.hass = hass
-        self.entry = entry
-        self.address: str = entry.data["address"]
-        self.reading: ScaleReading | None = None
-        self.metrics: dict[str, float] = {}
-        self._listeners: list[Callable[[], None]] = []
-        self._unregister_callback: Callable[[], None] | None = None
-
-    @property
-    def profile(self) -> dict:
-        """Return the configured height/age/sex profile."""
-        options = self.entry.options
-        return {
-            CONF_HEIGHT_CM: options[CONF_HEIGHT_CM],
-            CONF_AGE: options[CONF_AGE],
-            CONF_SEX: options[CONF_SEX],
-        }
-
-    @callback
-    def _async_handle_advertisement(
-        self,
-        service_info: bluetooth.BluetoothServiceInfoBleak,
-        change: bluetooth.BluetoothChange,
-    ) -> None:
-        reading = parse_manufacturer_data(service_info.manufacturer_data)
-        if reading is None:
-            return
-
-        self.reading = reading
-
-        if reading.stable and reading.impedance_ohm:
-            profile = self.profile
-            self.metrics = body_metrics.calculate_metrics(
-                weight_kg=reading.weight_kg,
-                impedance_ohm=reading.impedance_ohm,
-                height_cm=profile[CONF_HEIGHT_CM],
-                age=profile[CONF_AGE],
-                sex=profile[CONF_SEX],
+def _coordinator_for(hass: HomeAssistant, call: ServiceCall) -> AnkoScaleCoordinator:
+    """Return the coordinator a service call targets."""
+    coordinators: dict[str, AnkoScaleCoordinator] = hass.data.get(DOMAIN, {})
+    entry_id = call.data.get("config_entry_id")
+    if entry_id is not None:
+        if entry_id not in coordinators:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_entry",
+                translation_placeholders={"entry_id": entry_id},
             )
+        return coordinators[entry_id]
+    if len(coordinators) == 1:
+        return next(iter(coordinators.values()))
+    raise ServiceValidationError(
+        translation_domain=DOMAIN, translation_key="entry_required"
+    )
 
-        for update_listener in self._listeners:
-            update_listener()
 
-    def async_add_listener(
-        self, update_callback: Callable[[], None]
-    ) -> Callable[[], None]:
-        """Register a callback to be called when a new reading arrives."""
-        self._listeners.append(update_callback)
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register integration services (once, independent of config entries)."""
 
-        def _remove() -> None:
-            self._listeners.remove(update_callback)
-
-        return _remove
-
-    def async_start(self) -> None:
-        """Start listening for passive BLE adverts from the scale."""
-        self._unregister_callback = bluetooth.async_register_callback(
-            self.hass,
-            self._async_handle_advertisement,
-            bluetooth.BluetoothCallbackMatcher(address=self.address),
-            bluetooth.BluetoothScanningMode.PASSIVE,
+    async def _assign(call: ServiceCall) -> None:
+        _coordinator_for(hass, call).async_assign_pending(
+            call.data["pending_id"], call.data["person_id"]
         )
 
-    def async_stop(self) -> None:
-        """Stop listening for adverts."""
-        if self._unregister_callback:
-            self._unregister_callback()
-            self._unregister_callback = None
+    async def _discard(call: ServiceCall) -> None:
+        _coordinator_for(hass, call).async_discard_pending(call.data["pending_id"])
+
+    async def _reassign(call: ServiceCall) -> None:
+        _coordinator_for(hass, call).async_reassign_last(call.data["person_id"])
+
+    async def _set_next(call: ServiceCall) -> None:
+        _coordinator_for(hass, call).async_set_next_person(call.data.get("person_id"))
+
+    async def _reset(call: ServiceCall) -> None:
+        _coordinator_for(hass, call).async_reset_person_history(call.data["person_id"])
+
+    hass.services.async_register(DOMAIN, SERVICE_ASSIGN, _assign, ASSIGN_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_DISCARD, _discard, DISCARD_SCHEMA)
+    hass.services.async_register(DOMAIN, SERVICE_REASSIGN, _reassign, PERSON_SCHEMA)
+    hass.services.async_register(
+        DOMAIN, SERVICE_SET_NEXT_PERSON, _set_next, NEXT_PERSON_SCHEMA
+    )
+    hass.services.async_register(DOMAIN, SERVICE_RESET_HISTORY, _reset, PERSON_SCHEMA)
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate a v1 entry (single profile) to v2 (list of persons).
+
+    entry.data, the unique id and the entry id are left untouched, so entity
+    unique ids and entity ids of the scale device stay the same.
+    """
+    if entry.version > 2:
+        return False
+
+    if entry.version == 1:
+        old = dict(entry.options)
+        person = {
+            CONF_PROFILE_ID: LEGACY_PROFILE_ID,
+            CONF_DISPLAY_NAME: LEGACY_DISPLAY_NAME,
+            CONF_HEIGHT_CM: old.get(CONF_HEIGHT_CM, DEFAULT_HEIGHT_CM),
+            CONF_AGE: old.get(CONF_AGE, DEFAULT_AGE),
+            CONF_SEX: old.get(CONF_SEX, DEFAULT_SEX),
+        }
+        hass.config_entries.async_update_entry(
+            entry, options={CONF_PERSONS: [person]}, version=2
+        )
+        _LOGGER.info("Migrated ANKO scale entry %s to version 2", entry.entry_id)
+
+    return True
+
+
+@callback
+def _register_devices(
+    hass: HomeAssistant, entry: ConfigEntry, coordinator: AnkoScaleCoordinator
+) -> None:
+    """Register the scale and one device per person; drop deleted people.
+
+    The scale device keeps the 1.x identifier and name, so existing entities
+    stay attached to it. Person devices point at it through via_device_id.
+    """
+    registry = dr.async_get(hass)
+    scale = registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, coordinator.address)},
+        name="ANKO Body Scale",
+        manufacturer="ANKO",
+        model="iF1012D",
+    )
+    keep: set[str] = set()
+    for person in coordinator.persons:
+        identifier = f"{coordinator.address}:{person.profile_id}"
+        keep.add(identifier)
+        registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, identifier)},
+            name=person.display_name,
+            manufacturer="ANKO",
+            model="iF1012D person",
+            via_device_id=scale.id,
+        )
+
+    prefix = f"{coordinator.address}:"
+    for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
+        for domain, identifier in device.identifiers:
+            if domain != DOMAIN or not identifier.startswith(prefix):
+                continue
+            if identifier not in keep:
+                registry.async_update_device(
+                    device.id, remove_config_entry_id=entry.entry_id
+                )
+            break
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the ANKO Body Scale from a config entry."""
     coordinator = AnkoScaleCoordinator(hass, entry)
-    coordinator.async_start()
-
+    await coordinator.async_load()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    _register_devices(hass, entry, coordinator)
+    coordinator.async_start()
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     entry.async_on_unload(coordinator.async_stop)
@@ -106,7 +188,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry when its options (the body profile) change."""
+    """Reload the entry when its options (persons, settings) change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 

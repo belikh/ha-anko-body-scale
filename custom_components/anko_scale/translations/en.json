@@ -8,14 +8,22 @@
         }
       },
       "profile": {
-        "title": "Body profile",
-        "description": "Enter the details of the person who uses this scale. These are used to calculate body composition (body fat, muscle mass, BMR, etc.).",
+        "title": "First person",
+        "description": "Enter the details of a person who uses this scale. More people can be added later with Configure. Details drive the body-composition calculations.",
         "data": {
+          "display_name": "Name",
           "height_cm": "Height (cm)",
-          "age": "Age (years)",
-          "sex": "Sex"
+          "sex": "Sex",
+          "birth_date": "Birth date (optional, overrides age)",
+          "age": "Age (years, used when no birth date is set)",
+          "person_entity": "Person entity (optional, skips this person when not home)",
+          "expected_weight_kg": "Starting weight in kg (optional, helps recognise this person)"
         }
       }
+    },
+    "error": {
+      "name_required": "Enter a name.",
+      "name_exists": "Another person already has this name."
     },
     "abort": {
       "no_devices_found": "No ANKO body scales were found on the network.",
@@ -25,13 +33,74 @@
   "options": {
     "step": {
       "init": {
-        "title": "Body profile",
-        "description": "Update the height/age/sex used to calculate body composition.",
-        "data": {
-          "height_cm": "Height (cm)",
-          "age": "Age (years)",
-          "sex": "Sex"
+        "title": "People and settings",
+        "menu_options": {
+          "add_person": "Add a person",
+          "edit_person": "Edit a person",
+          "delete_person": "Delete a person",
+          "settings": "Attribution settings"
         }
+      },
+      "add_person": {
+        "title": "Add a person",
+        "data": {
+          "display_name": "Name",
+          "height_cm": "Height (cm)",
+          "sex": "Sex",
+          "birth_date": "Birth date (optional, overrides age)",
+          "age": "Age (years, used when no birth date is set)",
+          "person_entity": "Person entity (optional, skips this person when not home)",
+          "expected_weight_kg": "Starting weight in kg (optional, helps recognise this person)"
+        }
+      },
+      "edit_person": {
+        "title": "Edit a person",
+        "data": {
+          "profile_id": "Person"
+        }
+      },
+      "edit_person_form": {
+        "title": "Edit person",
+        "data": {
+          "display_name": "Name",
+          "height_cm": "Height (cm)",
+          "sex": "Sex",
+          "birth_date": "Birth date (optional, overrides age)",
+          "age": "Age (years, used when no birth date is set)",
+          "person_entity": "Person entity (optional, skips this person when not home)",
+          "expected_weight_kg": "Starting weight in kg (optional, helps recognise this person)"
+        }
+      },
+      "delete_person": {
+        "title": "Delete a person",
+        "description": "Deleting a person removes their device and entities. Their history is not recoverable.",
+        "data": {
+          "profile_id": "Person"
+        }
+      },
+      "settings": {
+        "title": "Attribution settings",
+        "description": "A reading is assigned to the person whose expected weight is closest, if it is within the tolerance and at least the margin closer than the next person. Otherwise it waits as a pending measurement.",
+        "data": {
+          "tolerance_kg": "Tolerance (kg)",
+          "tolerance_pct": "Tolerance (% of expected weight)",
+          "margin_kg": "Margin to runner-up (kg)",
+          "history_size": "Readings kept per person",
+          "pending_timeout_min": "Pending timeout (minutes)",
+          "notify_service": "Notify action for pending readings (for example notify.mobile_app_phone)"
+        }
+      }
+    },
+    "error": {
+      "name_required": "Enter a name.",
+      "name_exists": "Another person already has this name."
+    }
+  },
+  "selector": {
+    "sex": {
+      "options": {
+        "male": "Male",
+        "female": "Female"
       }
     }
   },
@@ -78,12 +147,121 @@
       },
       "ideal_weight_max": {
         "name": "Ideal weight (max)"
+      },
+      "last_person": {
+        "name": "Last person"
+      },
+      "pending_count": {
+        "name": "Pending measurements"
       }
     },
     "binary_sensor": {
       "reading_stable": {
         "name": "Reading stable"
       }
+    },
+    "button": {
+      "weighing_in": {
+        "name": "Weighing in"
+      }
+    },
+    "select": {
+      "next_person": {
+        "name": "Next person"
+      }
+    }
+  },
+  "services": {
+    "assign_measurement": {
+      "name": "Assign measurement",
+      "description": "Assign a pending weigh-in to a person and publish their body metrics.",
+      "fields": {
+        "pending_id": {
+          "name": "Pending ID",
+          "description": "The pending_id from the pending sensor attributes or the anko_scale_pending_measurement event."
+        },
+        "person_id": {
+          "name": "Person ID",
+          "description": "The person's profile ID."
+        },
+        "config_entry_id": {
+          "name": "Scale",
+          "description": "Needed only when more than one scale is configured."
+        }
+      }
+    },
+    "discard_measurement": {
+      "name": "Discard measurement",
+      "description": "Discard a pending weigh-in, for example a guest. No profile is created.",
+      "fields": {
+        "pending_id": {
+          "name": "Pending ID",
+          "description": "The pending weigh-in to discard."
+        },
+        "config_entry_id": {
+          "name": "Scale",
+          "description": "Needed only when more than one scale is configured."
+        }
+      }
+    },
+    "reassign_measurement": {
+      "name": "Reassign last measurement",
+      "description": "Move the most recent attributed weigh-in to another person. The previous owner's values are restored.",
+      "fields": {
+        "person_id": {
+          "name": "Person ID",
+          "description": "The person who should own the measurement."
+        },
+        "config_entry_id": {
+          "name": "Scale",
+          "description": "Needed only when more than one scale is configured."
+        }
+      }
+    },
+    "set_next_person": {
+      "name": "Set next person",
+      "description": "Assign the next stable reading to this person, for up to 60 seconds. Leave the person empty to clear.",
+      "fields": {
+        "person_id": {
+          "name": "Person ID",
+          "description": "The person stepping on next."
+        },
+        "config_entry_id": {
+          "name": "Scale",
+          "description": "Needed only when more than one scale is configured."
+        }
+      }
+    },
+    "reset_person_history": {
+      "name": "Reset person history",
+      "description": "Forget the stored weights used to recognise this person. Their starting weight, if set, is used again.",
+      "fields": {
+        "person_id": {
+          "name": "Person ID",
+          "description": "The person to reset."
+        },
+        "config_entry_id": {
+          "name": "Scale",
+          "description": "Needed only when more than one scale is configured."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_person": {
+      "message": "No person with ID {person} on this scale."
+    },
+    "unknown_pending": {
+      "message": "No pending measurement with ID {pending_id}. It may have expired."
+    },
+    "no_last_measurement": {
+      "message": "There is no recent measurement to reassign."
+    },
+    "unknown_entry": {
+      "message": "No loaded ANKO scale entry with ID {entry_id}."
+    },
+    "entry_required": {
+      "message": "More than one scale is configured. Set config_entry_id."
     }
   }
 }

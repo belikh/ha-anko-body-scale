@@ -84,15 +84,20 @@ class Attribution:
     reason: str = "pending"
 
 
+def ewma(history: list[float]) -> float:
+    """Return the exponentially weighted mean of a non-empty history."""
+    value = history[0]
+    for sample in history[1:]:
+        value = EWMA_ALPHA * sample + (1 - EWMA_ALPHA) * value
+    return value
+
+
 def update_expected_weight(
     history: list[float], weight_kg: float, history_size: int = DEFAULT_HISTORY_SIZE
 ) -> tuple[list[float], float]:
     """Append a reading to the history (capped) and return the EWMA."""
     new_history = [*history, weight_kg][-history_size:]
-    ewma = new_history[0]
-    for value in new_history[1:]:
-        ewma = EWMA_ALPHA * value + (1 - EWMA_ALPHA) * ewma
-    return new_history, ewma
+    return new_history, ewma(new_history)
 
 
 def tolerance_for(
@@ -158,3 +163,13 @@ def score(
     if len(candidates) > 1 and candidates[1].distance_kg - best.distance_kg < margin_kg:
         return Attribution(None, candidates, "ambiguous")
     return Attribution(best.profile_id, candidates, "weight_match")
+
+
+def confidence_for(result: Attribution, margin_kg: float = DEFAULT_MARGIN_KG) -> float:
+    """Return 0..1 confidence: 1.0 unless two people were close in weight."""
+    if result.profile_id is None:
+        return 0.0
+    if result.reason in ("forced", "single_person") or len(result.candidates) < 2:
+        return 1.0
+    gap = result.candidates[1].distance_kg - result.candidates[0].distance_kg
+    return round(min(1.0, gap / (2 * margin_kg)), 2)

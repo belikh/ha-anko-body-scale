@@ -1,0 +1,69 @@
+assign_measurement:
+  fields:
+    pending_id:
+      required: true
+      example: "3fa91c0b"
+      selector:
+        text:
+    person_id:
+      required: true
+      example: "jupiter"
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: anko_scale
+
+discard_measurement:
+  fields:
+    pending_id:
+      required: true
+      example: "3fa91c0b"
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: anko_scale
+
+reassign_measurement:
+  fields:
+    person_id:
+      required: true
+      example: "sarah"
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: anko_scale
+
+set_next_person:
+  fields:
+    person_id:
+      required: false
+      example: "jupiter"
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: anko_scale
+
+reset_person_history:
+  fields:
+    person_id:
+      required: true
+      example: "jupiter"
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: anko_scale

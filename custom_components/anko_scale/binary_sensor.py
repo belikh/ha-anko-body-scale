@@ -6,12 +6,12 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from . import AnkoScaleCoordinator
 from .const import DOMAIN
+from .coordinator import AnkoScaleCoordinator
+from .entity import scale_device_info
 
 
 async def async_setup_entry(
@@ -33,12 +33,7 @@ class AnkoScaleStableBinarySensor(BinarySensorEntity, RestoreEntity):
         """Initialise the reading-stable binary sensor."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{coordinator.address}_reading_stable"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.address)},
-            name="ANKO Body Scale",
-            manufacturer="ANKO",
-            model="iF1012D",
-        )
+        self._attr_device_info = scale_device_info(coordinator.address)
         self._restored_is_on: bool | None = None
 
     @property
