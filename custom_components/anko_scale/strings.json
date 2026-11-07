@@ -9,13 +9,13 @@
       },
       "profile": {
         "title": "First person",
-        "description": "Enter the details of a person who uses this scale. More people can be added later with Configure. Details drive the body-composition calculations.",
+        "description": "Enter the details of a person who uses this scale. More people can be added later with Configure. Give a birth date or an age. Details drive the body-composition calculations.",
         "data": {
           "display_name": "Name",
           "height_cm": "Height (cm)",
           "sex": "Sex",
-          "birth_date": "Birth date as YYYY-MM-DD (optional, overrides age)",
-          "age": "Age (years, used when no birth date is set)",
+          "birth_date": "Birth date as YYYY-MM-DD (preferred over age)",
+          "age": "Age in years (only if no birth date)",
           "person_entity": "Person entity (optional, skips this person when not home)",
           "expected_weight_kg": "Starting weight in kg (optional, helps recognise this person)"
         }
@@ -24,7 +24,8 @@
     "error": {
       "name_required": "Enter a name.",
       "name_exists": "Another person already has this name.",
-      "invalid_birth_date": "Enter a past date as YYYY-MM-DD, for example 1985-03-27."
+      "invalid_birth_date": "Enter a past date as YYYY-MM-DD, for example 1985-03-27.",
+      "birth_date_or_age": "Enter a birth date or an age."
     },
     "abort": {
       "no_devices_found": "No ANKO body scales were found on the network.",
@@ -48,8 +49,8 @@
           "display_name": "Name",
           "height_cm": "Height (cm)",
           "sex": "Sex",
-          "birth_date": "Birth date as YYYY-MM-DD (optional, overrides age)",
-          "age": "Age (years, used when no birth date is set)",
+          "birth_date": "Birth date as YYYY-MM-DD (preferred over age)",
+          "age": "Age in years (only if no birth date)",
           "person_entity": "Person entity (optional, skips this person when not home)",
           "expected_weight_kg": "Starting weight in kg (optional, helps recognise this person)"
         }
@@ -66,8 +67,8 @@
           "display_name": "Name",
           "height_cm": "Height (cm)",
           "sex": "Sex",
-          "birth_date": "Birth date as YYYY-MM-DD (optional, overrides age)",
-          "age": "Age (years, used when no birth date is set)",
+          "birth_date": "Birth date as YYYY-MM-DD (preferred over age)",
+          "age": "Age in years (only if no birth date)",
           "person_entity": "Person entity (optional, skips this person when not home)",
           "expected_weight_kg": "Starting weight in kg (optional, helps recognise this person)"
         }
@@ -95,7 +96,8 @@
     "error": {
       "name_required": "Enter a name.",
       "name_exists": "Another person already has this name.",
-      "invalid_birth_date": "Enter a past date as YYYY-MM-DD, for example 1985-03-27."
+      "invalid_birth_date": "Enter a past date as YYYY-MM-DD, for example 1985-03-27.",
+      "birth_date_or_age": "Enter a birth date or an age."
     }
   },
   "selector": {

@@ -188,3 +188,20 @@ async def test_birth_date_typed_and_validated(hass: HomeAssistant) -> None:
         {**PERSON_INPUT, "display_name": "Sarah", "birth_date": "1985-03-27"},
     )
     assert good["data"]["persons"][1]["birth_date"] == "1985-03-27"
+
+
+async def test_birth_date_or_age_required(hass: HomeAssistant) -> None:
+    entry = _entry(hass)
+    result = await _menu(hass, entry, "add_person")
+    no_age = {k: v for k, v in PERSON_INPUT.items() if k != "age"}
+    bad = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**no_age, "display_name": "Sarah"}
+    )
+    assert bad["errors"] == {"birth_date": "birth_date_or_age"}
+    good = await hass.config_entries.options.async_configure(
+        bad["flow_id"],
+        {**no_age, "display_name": "Sarah", "birth_date": "1985-03-27"},
+    )
+    person = good["data"]["persons"][1]
+    assert "age" not in person
+    assert person["birth_date"] == "1985-03-27"

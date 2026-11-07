@@ -6,6 +6,7 @@
 
 *   Birth date is a text field (`YYYY-MM-DD`) instead of a calendar picker
     that moved one month at a time.
+*   Age is optional and only needed when no birth date is given.
 
 ## 1.1.0
 

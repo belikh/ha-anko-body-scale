@@ -38,7 +38,6 @@ from .const import (
     CONF_SEX,
     CONF_TOLERANCE_KG,
     CONF_TOLERANCE_PCT,
-    DEFAULT_AGE,
     DEFAULT_HEIGHT_CM,
     DEFAULT_HISTORY_SIZE,
     DEFAULT_MARGIN_KG,
@@ -99,9 +98,7 @@ def person_schema(current: dict[str, Any] | None = None) -> vol.Schema:
                 )
             ),
             _optional(CONF_BIRTH_DATE, current): selector.TextSelector(),
-            vol.Required(CONF_AGE, default=current.get(CONF_AGE, DEFAULT_AGE)): _number(
-                5, 120
-            ),
+            _optional(CONF_AGE, current): _number(5, 120),
             _optional(CONF_PERSON_ENTITY, current): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="person")
             ),
@@ -115,7 +112,10 @@ def _clean_person(user_input: dict[str, Any]) -> dict[str, Any]:
     person = dict(user_input)
     person[CONF_DISPLAY_NAME] = person[CONF_DISPLAY_NAME].strip()
     person[CONF_HEIGHT_CM] = int(person[CONF_HEIGHT_CM])
-    person[CONF_AGE] = int(person[CONF_AGE])
+    if person.get(CONF_AGE) not in (None, ""):
+        person[CONF_AGE] = int(person[CONF_AGE])
+    else:
+        person.pop(CONF_AGE, None)
     for key in _OPTIONAL_PERSON_KEYS:
         if person.get(key) in (None, ""):
             person.pop(key, None)
@@ -132,6 +132,8 @@ def _validate_person(
     elif name.casefold() in {o[CONF_DISPLAY_NAME].casefold() for o in others}:
         errors[CONF_DISPLAY_NAME] = "name_exists"
     raw_birth = person.get(CONF_BIRTH_DATE)
+    if not raw_birth and CONF_AGE not in person:
+        errors[CONF_BIRTH_DATE] = "birth_date_or_age"
     if raw_birth:
         try:
             parsed = date.fromisoformat(str(raw_birth).strip())

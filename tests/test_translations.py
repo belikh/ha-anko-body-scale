@@ -81,12 +81,18 @@ def test_flow_steps_and_errors_present() -> None:
     translations = _load_json("translations/en.json")
     for section, steps in FLOW_STEPS.items():
         assert steps <= set(translations[section]["step"]), section
-    assert {"name_required", "name_exists", "invalid_birth_date"} <= set(
-        translations["config"]["error"]
-    )
-    assert {"name_required", "name_exists", "invalid_birth_date"} <= set(
-        translations["options"]["error"]
-    )
+    assert {
+        "name_required",
+        "name_exists",
+        "invalid_birth_date",
+        "birth_date_or_age",
+    } <= set(translations["config"]["error"])
+    assert {
+        "name_required",
+        "name_exists",
+        "invalid_birth_date",
+        "birth_date_or_age",
+    } <= set(translations["options"]["error"])
     assert {"no_devices_found", "already_configured"} <= set(
         translations["config"]["abort"]
     )
