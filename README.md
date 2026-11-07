@@ -20,7 +20,7 @@ confirmed against nRF Connect captures (Senssun protocol family).
 - Passive BLE: the scale broadcasts and Home Assistant listens. Nothing is sent to the internet.
 - Body composition: 14 sensors computed from each settled reading. Fat-free mass uses a published foot-to-foot impedance equation, with a BMI-based fallback (see [How body composition is calculated](#how-body-composition-is-calculated)).
 - Multiple people on one scale. Each reading goes to the person whose recent weights are closest (see [How readings are assigned](#how-readings-are-assigned)).
-- One device per person, linked to the scale device. Scale-level sensors keep their 1.x entity IDs.
+- One device per person, linked to the scale device. The scale device keeps its weight, raw impedance and reading-stable entities.
 - Settling buffer: one weigh-in produces one set of values, not one per advert.
 - Expected weights and the pending queue persist across restarts.
 - Ambiguous readings wait as pending measurements, with services, events and optional mobile notifications to resolve them.
@@ -109,13 +109,12 @@ Scale device (`ANKO Body Scale`):
 |---|---|---|---|---|
 | `sensor` | Weight | — | enabled | Latest advert weight in kg |
 | `sensor` | Impedance (raw) | Diagnostic | **disabled** | Raw impedance code from the scale, no unit. 0 means the feet were not touching the pads. |
-| `sensor` | BMI … Ideal weight (max) | — | enabled | Metrics of the most recently assigned person (12 sensors, same list as below) |
 | `sensor` | Last person | — | enabled | Name of the person the last weigh-in went to |
 | `sensor` | Pending measurements | Diagnostic | enabled | Count of unassigned weigh-ins, with their IDs in attributes |
 | `binary_sensor` | Reading stable | Diagnostic | enabled | `on` when the scale has finished measuring (status byte `0xA1`) |
 | `select` | Next person | — | enabled | One-shot manual assignment |
 
-Each person device has the same 14 sensors as the scale device (`sensor.<name>_weight`, `sensor.<name>_body_fat`, and so on), values from that person's last assigned weigh-in, plus a `button` **Weighing in**.
+Each person device has 14 sensors (`sensor.<name>_weight`, `sensor.<name>_body_fat`, and so on) with values from that person's last assigned weigh-in, plus a `button` **Weighing in**. The scale device carries no body-composition sensors.
 
 | Sensor | Description |
 |---|---|

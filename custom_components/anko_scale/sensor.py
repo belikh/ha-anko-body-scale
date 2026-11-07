@@ -24,6 +24,9 @@ from .entity import person_device_info, scale_device_info
 
 PARALLEL_UPDATES = 0
 
+# Scale-level sensors. Body composition lives on the person devices.
+SCALE_SENSOR_KEYS = frozenset({"weight", "impedance"})
+
 
 def _has_metrics(state: PersonState) -> bool:
     return bool(state.metrics)
@@ -178,7 +181,9 @@ async def async_setup_entry(
     """Set up ANKO Body Scale sensors from a config entry."""
     coordinator: AnkoScaleCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SensorEntity] = [
-        AnkoScaleSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS
+        AnkoScaleSensor(coordinator, description)
+        for description in SENSOR_DESCRIPTIONS
+        if description.key in SCALE_SENSOR_KEYS
     ]
     entities.extend(
         AnkoScalePersonSensor(coordinator, profile, description)
@@ -249,7 +254,7 @@ class _AnkoRestoreSensor(SensorEntity, RestoreEntity):
 
 
 class AnkoScaleSensor(_AnkoRestoreSensor):
-    """A scale-level measurement: raw weight/impedance and the latest metrics."""
+    """A scale-level reading: raw weight or impedance code of the latest advert."""
 
     def __init__(
         self, coordinator: AnkoScaleCoordinator, description: AnkoScaleSensorDescription
@@ -264,7 +269,6 @@ class AnkoScaleSensor(_AnkoRestoreSensor):
         return PersonState(
             weight_kg=reading.weight_kg if reading else None,
             impedance_raw=reading.impedance_raw if reading else None,
-            metrics=self._coordinator.metrics,
         )
 
 

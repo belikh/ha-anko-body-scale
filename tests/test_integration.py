@@ -96,7 +96,7 @@ async def test_migration_v1_to_v2_keeps_entities(
     ]
     assert registry.async_get("sensor.anko_body_scale_weight") is not None
     assert registry.async_get("sensor.anko_body_scale_weight").id == old.id
-    assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_bmi")
+    assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_weight")
 
 
 async def test_two_persons_create_devices_and_entities(
@@ -540,3 +540,28 @@ async def test_contact_weigh_in_uses_assumed_bia_route(
     await hass.async_block_till_done()
     state = hass.states.get("sensor.alice_body_fat")
     assert state.attributes["method"] == "bia_assumed"
+
+
+async def test_scale_body_sensors_are_removed(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    for key in ("bmi", "body_fat_percent", "bmr"):
+        registry.async_get_or_create(
+            "sensor", DOMAIN, f"{ADDRESS}_{key}", config_entry=entry
+        )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    for key in ("bmi", "body_fat_percent", "bmr"):
+        assert (
+            registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_{key}") is None
+        )
+    # The scale keeps weight, raw impedance, last person and pending count.
+    for key in ("weight", "impedance", "last_person", "pending_count"):
+        assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_{key}")
+    # Person sensors are untouched.
+    assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_alice_bmi")

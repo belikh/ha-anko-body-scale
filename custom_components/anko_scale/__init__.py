@@ -18,6 +18,7 @@ from homeassistant.core import (
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -157,6 +158,36 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+# Scale-level body-composition sensors removed in 1.3.0; they duplicated the
+# person sensors and showed whoever weighed in last.
+_REMOVED_SCALE_SENSOR_KEYS = (
+    "bmi",
+    "body_fat_percent",
+    "fat_mass",
+    "lean_mass",
+    "muscle_mass",
+    "body_water",
+    "bone_mass",
+    "bmr",
+    "metabolic_age",
+    "visceral_fat_index",
+    "ideal_weight_min",
+    "ideal_weight_max",
+)
+
+
+@callback
+def _remove_scale_body_sensors(
+    hass: HomeAssistant, entry: ConfigEntry, address: str
+) -> None:
+    """Delete the retired scale-level body-composition entities."""
+    registry = er.async_get(hass)
+    stale = {f"{address}_{key}" for key in _REMOVED_SCALE_SENSOR_KEYS}
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.domain == "sensor" and entity.unique_id in stale:
+            registry.async_remove(entity.entity_id)
+
+
 @callback
 def _register_devices(
     hass: HomeAssistant, entry: ConfigEntry, coordinator: AnkoScaleCoordinator
@@ -205,6 +236,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_load()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     _register_devices(hass, entry, coordinator)
+    _remove_scale_body_sensors(hass, entry, coordinator.address)
     coordinator.async_start()
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))

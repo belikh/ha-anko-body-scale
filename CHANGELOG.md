@@ -13,6 +13,17 @@
 *   **Examples** in `examples/`: dashboard, weight-loss leaderboard and a
     pet-weighing script.
 
+### Removed
+
+*   **Scale-level body-composition sensors.** BMI, body fat, fat mass, lean
+    mass, muscle mass, body water, bone mass, basal metabolic rate, metabolic
+    age, visceral fat index and the two ideal-weight sensors are gone from the
+    scale device. Each person device has them. They are deleted from the entity
+    registry on startup, so dashboards and automations that use
+    `sensor.<scale name>_body_fat` and the like must switch to the person's
+    sensor. The scale keeps weight, impedance (raw), reading stable, last
+    person, pending measurements and next person.
+
 ### Changed
 
 *   **Impedance decode.** Captured frames show byte 13 is a raw code (0 with

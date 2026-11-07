@@ -162,7 +162,6 @@ class AnkoScaleCoordinator:
         self.notify_service: str | None = options.get(CONF_NOTIFY_SERVICE) or None
 
         self.reading: ScaleReading | None = None
-        self.metrics: dict[str, float] = {}
         self.last_person: str | None = None
         self.person_states: dict[str, PersonState] = {
             p.profile_id: PersonState() for p in self.persons
@@ -476,7 +475,6 @@ class AnkoScaleCoordinator:
             previous_history, weight_kg, self.history_size
         )
         self.last_measured[profile_id] = timestamp
-        self.metrics = metrics
         self.last_person = profile.display_name
         self._schedule_save()
         self.hass.bus.async_fire(
