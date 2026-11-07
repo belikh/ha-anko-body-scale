@@ -367,3 +367,30 @@ async def test_fake_advert_stream_yields_one_weigh_in(
     assert len(events) == 1
     assert events[0].data["person_id"] == "alice"
     assert 60.8 <= events[0].data["weight_kg"] <= 61.3
+
+
+async def test_diagnostics_lists_recent_frames_redacted(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    from types import SimpleNamespace
+
+    from custom_components.anko_scale.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    entry = _entry(2, {"persons": [ALICE, BOB]})
+    coordinator = await _setup(hass, entry)
+    addr = bytes.fromhex(ADDRESS.replace(":", ""))
+    payload = (
+        bytes([2, 3, 17]) + addr + bytes([2, 0x18, 0x0B, 0, 0x78, 0xA1, 0x9E, 0xDC])
+    )
+    info = SimpleNamespace(manufacturer_data={0x0100: payload}, rssi=-80)
+    coordinator._async_handle_advertisement(info, None)
+    coordinator._async_handle_advertisement(info, None)  # duplicate is skipped
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    frames = diag["recent_frames"]
+    assert len(frames) == 1
+    assert frames[0]["weight_kg"] == 61.55
+    assert ADDRESS.replace(":", "").lower() not in frames[0]["hex"]
+    assert "78a19edc" in frames[0]["hex"]

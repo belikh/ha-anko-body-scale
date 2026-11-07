@@ -233,7 +233,7 @@ Entity IDs follow the names you choose.
 
 ## Diagnostics
 
-**Settings → Devices & Services → ANKO Body Scale → Download diagnostics** includes the integration version, options with names, birth dates and the BLE address redacted, per-person history length and last timestamp, advert counts, RSSI and the last raw frame. It contains no weight history.
+**Settings → Devices & Services → ANKO Body Scale → Download diagnostics** includes the integration version, options with names, birth dates and the BLE address redacted, per-person history length and last timestamp, advert counts, RSSI, the last raw frame and the last 30 distinct raw adverts. It contains no weight history.
 
 ## Reporting a problem
 

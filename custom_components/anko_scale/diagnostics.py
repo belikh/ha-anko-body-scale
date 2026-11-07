@@ -31,9 +31,12 @@ async def async_get_config_entry_diagnostics(
 ) -> dict[str, Any]:
     """Return diagnostics with the BLE address and health history redacted."""
     coordinator: AnkoScaleCoordinator = hass.data[DOMAIN][entry.entry_id]
-    raw = coordinator.last_raw_hex
-    if raw and coordinator.address:
-        raw = raw.replace(coordinator.address.replace(":", "").lower(), "<redacted>")
+    address_hex = coordinator.address.replace(":", "").lower()
+
+    def _redact(raw: str | None) -> str | None:
+        return raw.replace(address_hex, "<redacted>") if raw else raw
+
+    raw = _redact(coordinator.last_raw_hex)
     return {
         "integration_version": await hass.async_add_executor_job(_integration_version),
         "entry": async_redact_data(
@@ -64,4 +67,8 @@ async def async_get_config_entry_diagnostics(
         },
         "rssi": coordinator.rssi,
         "last_raw_frame": raw,
+        "recent_frames": [
+            {**frame, "hex": _redact(frame["hex"])}
+            for frame in coordinator.recent_frames
+        ],
     }

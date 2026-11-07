@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1
+
+### Added
+
+*   Diagnostics list the last 30 distinct raw adverts (hex with the BLE
+    address redacted, parsed weight and impedance, stable flag, RSSI) to
+    help check how the impedance bytes are decoded.
+
 ## 1.2.0
 
 ### Changed

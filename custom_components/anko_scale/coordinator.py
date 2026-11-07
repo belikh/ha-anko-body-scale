@@ -6,6 +6,7 @@ import logging
 import secrets
 import statistics
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -55,6 +56,7 @@ from .store import AnkoScaleStore
 _LOGGER = logging.getLogger(__name__)
 
 MAX_PENDING = 10
+MAX_RECENT_FRAMES = 30
 MOBILE_ACTION_EVENT = "mobile_app_notification_action"
 ACTION_ASSIGN_PREFIX = "ANKO_ASSIGN"
 ACTION_DISCARD_PREFIX = "ANKO_DISCARD"
@@ -170,6 +172,7 @@ class AnkoScaleCoordinator:
         # Diagnostics
         self.rssi: int | None = None
         self.last_raw_hex: str | None = None
+        self.recent_frames: deque[dict[str, Any]] = deque(maxlen=MAX_RECENT_FRAMES)
         self.frame_count = 0
         self.stable_frame_count = 0
         self.weigh_in_count = 0
@@ -271,6 +274,17 @@ class AnkoScaleCoordinator:
             f"{key:04x}:{value.hex()}"
             for key, value in service_info.manufacturer_data.items()
         )
+        if not self.recent_frames or self.recent_frames[-1]["hex"] != self.last_raw_hex:
+            self.recent_frames.append(
+                {
+                    "time": dt_util.utcnow().isoformat(timespec="seconds"),
+                    "hex": self.last_raw_hex,
+                    "weight_kg": reading.weight_kg,
+                    "impedance_ohm": reading.impedance_ohm,
+                    "stable": reading.stable,
+                    "rssi": service_info.rssi,
+                }
+            )
         self.async_handle_reading(reading, time.monotonic())
 
     @callback
