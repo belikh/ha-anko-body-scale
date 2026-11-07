@@ -97,6 +97,10 @@ A pending measurement is kept for the pending timeout (default 60 min, 10 at mos
 
 If **Notify action** is set (for example `notify.mobile_app_phone`), the phone gets a notification with an "I'm <name>" action for up to two candidates and a "Not me" action that discards. A persistent notification is always created.
 
+### Unknown weights
+
+When there are two or more people and a weigh-in is outside everyone's tolerance, the integration creates a repair under **Settings → System → Repairs**: "A weigh-in matched nobody". **Fix** opens a form to add that person with the observed weight as their starting weight. Submitting adds the person, reloads the entry and drops the pending weigh-in. The next weigh-in is the first one published for them. Each detection is logged at info level and counted in the diagnostics (`unknown_weights`). With one person configured there are no repairs: that person gets every reading. A weight that is close to two people (ambiguous) creates a pending measurement but no repair.
+
 ## Entities
 
 Scale device (`ANKO Body Scale`):
@@ -154,6 +158,7 @@ All actions take an optional `config_entry_id`, needed only with more than one s
 | `anko_scale.assign_measurement` | `pending_id`, `person_id` | Publishes the pending weigh-in for that person and fires `anko_scale_weigh_in`. |
 | `anko_scale.discard_measurement` | `pending_id` | Drops a pending weigh-in. |
 | `anko_scale.reassign_measurement` | `person_id` | Moves the last attributed weigh-in to another person and restores the previous owner's values. Not available after a restart. |
+| `anko_scale.capture_measurement` | `timeout` (5 to 300 s, default 60) | Waits for the next settled weigh-in and returns `weight_kg` and `timestamp` as the action response. The reading is not assigned and nothing enters anyone's history. Fails with an error at the timeout. |
 | `anko_scale.set_next_person` | `person_id` (empty clears) | Same as the **Weighing in** button. |
 | `anko_scale.reset_person_history` | `person_id` | Clears the stored weights; the starting weight, if set, is used again. |
 
@@ -231,6 +236,18 @@ Entity IDs follow the names you choose.
   restarts with the entry. If the scale is out of range the last values are
   restored and marked available until a fresh reading arrives; step on the
   scale to refresh them.
+
+## Examples
+
+The `examples/` folder holds copy-and-edit files. None are installed or enabled by default.
+
+| File | What it does |
+|---|---|
+| [`examples/dashboard.yaml`](examples/dashboard.yaml) | Dashboard with a per-person view (weight, body fat, muscle, BMR, metabolic age, visceral fat, goal) and a scale view. Paste it into the raw configuration editor of a new dashboard. |
+| [`examples/weight_loss_leaderboard.yaml`](examples/weight_loss_leaderboard.yaml) | Statistics sensors for 30-day weight change plus a template sensor that ranks everyone by kilograms lost and percentage of their goal. Ties share a rank; people without data are listed last. |
+| [`examples/pet_weighing.yaml`](examples/pet_weighing.yaml) | Script that talks you through two weigh-ins with TTS (holding the pet, then alone), stores the difference in a helper and announces it. Uses `anko_scale.capture_measurement`, so nobody's history changes. |
+
+The leaderboard reads health data from your own Home Assistant only. Nothing leaves it unless you share the dashboard. The examples use entity IDs for people named Jupiter and Sarah; replace them with yours. Screenshots are not included.
 
 ## Diagnostics
 

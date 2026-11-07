@@ -48,6 +48,7 @@ FLOW_STEPS = {
 SERVICES = {
     "assign_measurement",
     "discard_measurement",
+    "capture_measurement",
     "reassign_measurement",
     "set_next_person",
     "reset_person_history",
@@ -58,6 +59,8 @@ EXCEPTIONS = {
     "no_last_measurement",
     "unknown_entry",
     "entry_required",
+    "capture_timeout",
+    "capture_in_progress",
 }
 
 

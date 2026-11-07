@@ -67,3 +67,19 @@ reset_person_history:
       selector:
         config_entry:
           integration: anko_scale
+
+capture_measurement:
+  fields:
+    timeout:
+      required: false
+      default: 60
+      selector:
+        number:
+          min: 5
+          max: 300
+          unit_of_measurement: s
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: anko_scale

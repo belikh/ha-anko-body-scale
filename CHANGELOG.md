@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+
+*   **Unknown-weight repair.** A weigh-in that matches nobody (two or more
+    people configured) raises a repair whose fix form adds the person with the
+    observed weight as their starting weight. Detections are logged and
+    counted in diagnostics.
+*   **`anko_scale.capture_measurement`.** Returns the next settled weight as
+    an action response without assigning it to anyone.
+*   **Examples** in `examples/`: dashboard, weight-loss leaderboard and a
+    pet-weighing script.
+
 ## 1.2.1
 
 ### Added

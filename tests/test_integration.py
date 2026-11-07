@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -394,3 +395,119 @@ async def test_diagnostics_lists_recent_frames_redacted(
     assert frames[0]["weight_kg"] == 61.55
     assert ADDRESS.replace(":", "").lower() not in frames[0]["hex"]
     assert "78a19edc" in frames[0]["hex"]
+
+
+async def test_unknown_weight_raises_repair_and_flow_adds_person(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    from homeassistant.helpers import issue_registry as ir
+
+    from custom_components.anko_scale.repairs import async_create_fix_flow
+
+    entry = _entry(2, {"persons": [ALICE, BOB]})
+    coordinator = await _setup(hass, entry)
+    _weigh(coordinator, 120.0)
+
+    pending = coordinator.pending[0]
+    assert pending.reason == "no_match"
+    issue_id = f"unknown_weight_{pending.pending_id}"
+    issues = ir.async_get(hass)
+    issue = issues.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None and issue.is_fixable
+    assert coordinator.unknown_weight_count == 1
+
+    flow = await async_create_fix_flow(hass, issue_id, issue.data)
+    flow.hass = hass
+    form = await flow.async_step_init()
+    assert form["step_id"] == "person"
+    assert form["description_placeholders"] == {"weight": "120.0"}
+    suggested = {
+        str(k): k.description["suggested_value"]
+        for k in form["data_schema"].schema
+        if k.description
+    }
+    assert suggested["expected_weight_kg"] == 120.0
+
+    done = await flow.async_step_person(
+        {"display_name": "Guest Two", "height_cm": 175, "sex": "male", "age": 40}
+    )
+    assert done["type"] == "create_entry"
+    await hass.async_block_till_done()
+    assert [p["profile_id"] for p in entry.options["persons"]] == [
+        "alice",
+        "bob",
+        "guest_two",
+    ]
+    assert issues.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_ambiguous_reading_raises_no_repair(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    from homeassistant.helpers import issue_registry as ir
+
+    close = {**BOB, "expected_weight_kg": 61.0}
+    entry = _entry(2, {"persons": [ALICE, close]})
+    coordinator = await _setup(hass, entry)
+    _weigh(coordinator, 60.5)
+    assert coordinator.pending[0].reason == "ambiguous"
+    assert not ir.async_get(hass).issues
+
+
+async def test_single_person_bypass_raises_no_repair(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    from homeassistant.helpers import issue_registry as ir
+
+    entry = _entry(2, {"persons": [ALICE]})
+    coordinator = await _setup(hass, entry)
+    _weigh(coordinator, 120.0)
+    assert coordinator.pending == []
+    assert not ir.async_get(hass).issues
+
+
+async def test_capture_returns_weight_without_assigning(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    entry = _entry(2, {"persons": [ALICE, BOB]})
+    coordinator = await _setup(hass, entry)
+    events = []
+    hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
+    history_before = list(coordinator.history["alice"])
+
+    task = hass.async_create_task(
+        hass.services.async_call(
+            DOMAIN,
+            "capture_measurement",
+            {"timeout": 30},
+            blocking=True,
+            return_response=True,
+        )
+    )
+    for _ in range(100):
+        if coordinator._capture is not None:
+            break
+        await asyncio.sleep(0)
+    assert coordinator._capture is not None
+    _weigh(coordinator, 61.0)  # would normally be Alice
+    result = await task
+
+    assert result["weight_kg"] == 61.0
+    assert events == []
+    assert coordinator.history["alice"] == history_before
+    assert coordinator.pending == []
+
+    _weigh(coordinator, 61.0, t0=200.0)  # capture is one-shot
+    await hass.async_block_till_done()
+    assert len(events) == 1
+
+
+async def test_capture_times_out_cleanly(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    entry = _entry(2, {"persons": [ALICE, BOB]})
+    coordinator = await _setup(hass, entry)
+    with pytest.raises(ServiceValidationError):
+        await coordinator.async_capture_measurement(0)
+    # A later capture is not blocked by the failed one.
+    assert coordinator._capture is None

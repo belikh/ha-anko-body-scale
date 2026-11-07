@@ -8,7 +8,13 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
@@ -28,6 +34,7 @@ from .const import (
     LEGACY_DISPLAY_NAME,
     LEGACY_PROFILE_ID,
     SERVICE_ASSIGN,
+    SERVICE_CAPTURE,
     SERVICE_REASSIGN,
     SERVICE_RESET_HISTORY,
     SERVICE_SET_NEXT_PERSON,
@@ -52,6 +59,14 @@ ASSIGN_SCHEMA = vol.Schema(
 )
 DISCARD_SCHEMA = vol.Schema({**_ENTRY, vol.Required("pending_id"): cv.string})
 PERSON_SCHEMA = vol.Schema({**_ENTRY, vol.Required("person_id"): cv.string})
+CAPTURE_SCHEMA = vol.Schema(
+    {
+        **_ENTRY,
+        vol.Optional("timeout", default=60): vol.All(
+            vol.Coerce(int), vol.Range(min=5, max=300)
+        ),
+    }
+)
 NEXT_PERSON_SCHEMA = vol.Schema({**_ENTRY, vol.Optional("person_id"): cv.string})
 
 
@@ -94,7 +109,19 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def _reset(call: ServiceCall) -> None:
         _coordinator_for(hass, call).async_reset_person_history(call.data["person_id"])
 
+    async def _capture(call: ServiceCall) -> ServiceResponse:
+        return await _coordinator_for(hass, call).async_capture_measurement(
+            call.data["timeout"]
+        )
+
     hass.services.async_register(DOMAIN, SERVICE_ASSIGN, _assign, ASSIGN_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CAPTURE,
+        _capture,
+        CAPTURE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(DOMAIN, SERVICE_DISCARD, _discard, DISCARD_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_REASSIGN, _reassign, PERSON_SCHEMA)
     hass.services.async_register(

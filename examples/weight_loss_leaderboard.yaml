@@ -1,0 +1,73 @@
+# Example: household weight-loss leaderboard. Not enabled by default.
+#
+# Everything stays local. Add this file as a package (see the README) or
+# copy the parts you want. Replace `jupiter` and `sarah` with your people's
+# entity names, and list every person in the template at the bottom.
+#
+# Each person needs a goal helper (Settings > Devices & services > Helpers):
+#   input_number.jupiter_goal_loss_kg   (kg to lose, for example 5)
+#
+# Ranking: most kilograms lost over 30 days first. People with no readings in
+# the window are listed last as "no data". Ties share a rank.
+sensor:
+  - platform: statistics
+    name: Jupiter weight change 30d
+    unique_id: anko_jupiter_weight_change_30d
+    entity_id: sensor.jupiter_weight
+    state_characteristic: change
+    max_age:
+      days: 30
+    sampling_size: 200
+  - platform: statistics
+    name: Sarah weight change 30d
+    unique_id: anko_sarah_weight_change_30d
+    entity_id: sensor.sarah_weight
+    state_characteristic: change
+    max_age:
+      days: 30
+    sampling_size: 200
+
+template:
+  - sensor:
+      - name: Weight loss leaderboard
+        unique_id: anko_weight_loss_leaderboard
+        icon: mdi:podium
+        # Number of people with at least one reading in the window.
+        state: >
+          {{ [states('sensor.jupiter_weight_change_30d'),
+              states('sensor.sarah_weight_change_30d')]
+             | select('is_number') | list | count }}
+        attributes:
+          ranking: >
+            {% set people = [
+              {'name': 'Jupiter',
+               'change': states('sensor.jupiter_weight_change_30d'),
+               'goal': states('input_number.jupiter_goal_loss_kg')},
+              {'name': 'Sarah',
+               'change': states('sensor.sarah_weight_change_30d'),
+               'goal': states('input_number.sarah_goal_loss_kg')},
+            ] %}
+            {% set ns = namespace(rows=[]) %}
+            {% for p in people %}
+              {% if p.change | is_number %}
+                {% set lost = (0 - (p.change | float)) | round(2) %}
+                {% set goal = p.goal | float(0) %}
+                {% set pct = ((lost / goal * 100) | round(0)) if goal > 0 else none %}
+                {% set ns.rows = ns.rows + [{'name': p.name, 'delta_kg': lost, 'goal_pct': pct}] %}
+              {% else %}
+                {% set ns.rows = ns.rows + [{'name': p.name, 'delta_kg': none, 'goal_pct': none}] %}
+              {% endif %}
+            {% endfor %}
+            {% set with_data = ns.rows | selectattr('delta_kg', 'ne', none) | sort(attribute='delta_kg', reverse=true) | list %}
+            {% set without = ns.rows | selectattr('delta_kg', 'eq', none) | list %}
+            {% set out = namespace(rows=[], rank=0, last=none, seen=0) %}
+            {% for r in with_data %}
+              {% set out.seen = out.seen + 1 %}
+              {% if r.delta_kg != out.last %}{% set out.rank = out.seen %}{% endif %}
+              {% set out.last = r.delta_kg %}
+              {% set out.rows = out.rows + [dict(r, rank=out.rank)] %}
+            {% endfor %}
+            {% for r in without %}
+              {% set out.rows = out.rows + [dict(r, rank=none)] %}
+            {% endfor %}
+            {{ out.rows }}

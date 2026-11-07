@@ -1,0 +1,139 @@
+# Example dashboard for ANKO Body Scale. Import it as a new dashboard:
+# Settings > Dashboards > Add dashboard > New dashboard from scratch, open it,
+# three dots > Edit dashboard > three dots > Raw configuration editor, paste.
+#
+# Entity IDs follow the person's name. For a person named "Jupiter" they are
+# sensor.jupiter_weight, sensor.jupiter_body_fat and so on. Copy the section
+# for each person and replace `jupiter` and `Jupiter`.
+#
+# Each person needs a goal helper (Settings > Devices & services > Helpers):
+#   input_number.jupiter_goal_weight_kg   (target weight in kg)
+# Body fat, muscle, bone and visceral values are estimates; the `method`
+# attribute on those sensors says whether they came from impedance or from BMI.
+title: Body scale
+views:
+  - title: Jupiter
+    path: jupiter
+    icon: mdi:scale-bathroom
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Now
+            icon: mdi:account
+          - type: tile
+            entity: sensor.jupiter_weight
+            name: Weight
+          - type: gauge
+            entity: sensor.jupiter_weight
+            name: Weight vs goal
+            min: 40
+            max: 120
+            needle: true
+            segments:
+              - from: 40
+                color: "#3f8fd9"
+              - from: 60
+                color: "#43a047"
+              - from: 90
+                color: "#fb8c00"
+          - type: tile
+            entity: sensor.jupiter_body_fat
+            name: Body fat
+          - type: tile
+            entity: sensor.jupiter_bmi
+            name: BMI
+      - type: grid
+        cards:
+          - type: heading
+            heading: Weight trend
+            icon: mdi:chart-line
+          - type: statistics-graph
+            title: Weight, 90 days
+            entities:
+              - sensor.jupiter_weight
+            days_to_show: 90
+            period: day
+            stat_types:
+              - mean
+              - min
+              - max
+            chart_type: line
+          - type: statistics-graph
+            title: Body fat, 90 days
+            entities:
+              - sensor.jupiter_body_fat
+            days_to_show: 90
+            period: day
+            stat_types:
+              - mean
+            chart_type: line
+      - type: grid
+        cards:
+          - type: heading
+            heading: Composition
+            icon: mdi:human
+          - type: statistics-graph
+            title: Muscle mass, 90 days
+            entities:
+              - sensor.jupiter_muscle_mass
+            days_to_show: 90
+            period: day
+            stat_types:
+              - mean
+            chart_type: line
+          - type: statistics-graph
+            title: Basal metabolic rate, 90 days
+            entities:
+              - sensor.jupiter_basal_metabolic_rate
+            days_to_show: 90
+            period: day
+            stat_types:
+              - mean
+            chart_type: line
+          - type: entities
+            title: Latest values
+            entities:
+              - entity: sensor.jupiter_fat_mass
+              - entity: sensor.jupiter_lean_mass
+              - entity: sensor.jupiter_body_water
+              - entity: sensor.jupiter_bone_mass
+              - entity: sensor.jupiter_metabolic_age
+              - entity: sensor.jupiter_visceral_fat_index
+      - type: grid
+        cards:
+          - type: heading
+            heading: Goal
+            icon: mdi:flag-checkered
+          - type: entities
+            entities:
+              - entity: input_number.jupiter_goal_weight_kg
+          - type: markdown
+            content: >-
+              {% set w = states('sensor.jupiter_weight') | float(none) %}
+              {% set g = states('input_number.jupiter_goal_weight_kg') | float(none) %}
+              {% if w is not none and g is not none %}
+              {{ 'To lose: ' ~ ((w - g) | round(1)) ~ ' kg' if w > g
+                 else 'At or under goal by ' ~ ((g - w) | round(1)) ~ ' kg' }}
+              {% else %}
+              No weigh-in yet.
+              {% endif %}
+  - title: Scale
+    path: scale
+    icon: mdi:cog
+    type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Unassigned weigh-ins
+          - type: entities
+            entities:
+              - entity: select.anko_body_scale_next_person
+              - entity: binary_sensor.anko_body_scale_reading_stable
+          - type: markdown
+            content: >-
+              Open Settings > System > Repairs when a weight matches nobody.
+              For a guest, call anko_scale.discard_measurement.

@@ -107,7 +107,7 @@ def person_schema(current: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def _clean_person(user_input: dict[str, Any]) -> dict[str, Any]:
+def clean_person(user_input: dict[str, Any]) -> dict[str, Any]:
     """Normalise form input: ints for whole numbers, drop empty optionals."""
     person = dict(user_input)
     person[CONF_DISPLAY_NAME] = person[CONF_DISPLAY_NAME].strip()
@@ -122,9 +122,10 @@ def _clean_person(user_input: dict[str, Any]) -> dict[str, Any]:
     return person
 
 
-def _validate_person(
+def validate_person(
     person: dict[str, Any], others: list[dict[str, Any]]
 ) -> dict[str, str]:
+    """Return form errors for a person (empty when valid)."""
     errors: dict[str, str] = {}
     name = person[CONF_DISPLAY_NAME]
     if not name:
@@ -147,7 +148,7 @@ def _validate_person(
     return errors
 
 
-def _new_profile_id(name: str, existing: list[dict[str, Any]]) -> str:
+def new_profile_id(name: str, existing: list[dict[str, Any]]) -> str:
     """Return a unique lowercase slug for a new person."""
     base = slugify(name) or "person"
     taken = {p[CONF_PROFILE_ID] for p in existing}
@@ -219,10 +220,10 @@ class AnkoScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         """Collect the first person. More can be added later in Configure."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            person = _clean_person(user_input)
-            errors = _validate_person(person, [])
+            person = clean_person(user_input)
+            errors = validate_person(person, [])
             if not errors:
-                person[CONF_PROFILE_ID] = _new_profile_id(person[CONF_DISPLAY_NAME], [])
+                person[CONF_PROFILE_ID] = new_profile_id(person[CONF_DISPLAY_NAME], [])
                 return self.async_create_entry(
                     title=self._title,
                     data={CONF_ADDRESS: self._address},
@@ -276,10 +277,10 @@ class AnkoScaleOptionsFlow(OptionsFlow):
         persons = self._persons
         errors: dict[str, str] = {}
         if user_input is not None:
-            person = _clean_person(user_input)
-            errors = _validate_person(person, persons)
+            person = clean_person(user_input)
+            errors = validate_person(person, persons)
             if not errors:
-                person[CONF_PROFILE_ID] = _new_profile_id(
+                person[CONF_PROFILE_ID] = new_profile_id(
                     person[CONF_DISPLAY_NAME], persons
                 )
                 return self._save([*persons, person])
@@ -311,9 +312,9 @@ class AnkoScaleOptionsFlow(OptionsFlow):
         current = next(p for p in persons if p[CONF_PROFILE_ID] == self._edit_id)
         errors: dict[str, str] = {}
         if user_input is not None:
-            person = _clean_person(user_input)
+            person = clean_person(user_input)
             others = [p for p in persons if p[CONF_PROFILE_ID] != self._edit_id]
-            errors = _validate_person(person, others)
+            errors = validate_person(person, others)
             if not errors:
                 person[CONF_PROFILE_ID] = self._edit_id
                 return self._save(

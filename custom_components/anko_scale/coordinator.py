@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import statistics
@@ -16,6 +17,7 @@ from homeassistant.components import bluetooth, persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
@@ -85,6 +87,7 @@ class PendingMeasurement:
     impedance_ohm: float
     timestamp: datetime
     candidates: list[dict[str, Any]]
+    reason: str = "ambiguous"
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable form."""
@@ -94,6 +97,7 @@ class PendingMeasurement:
             "impedance_ohm": self.impedance_ohm,
             "timestamp": self.timestamp.isoformat(),
             "candidates": self.candidates,
+            "reason": self.reason,
         }
 
     @classmethod
@@ -105,6 +109,7 @@ class PendingMeasurement:
             impedance_ohm=float(data["impedance_ohm"]),
             timestamp=datetime.fromisoformat(data["timestamp"]),
             candidates=list(data.get("candidates", [])),
+            reason=str(data.get("reason", "ambiguous")),
         )
 
 
@@ -176,6 +181,8 @@ class AnkoScaleCoordinator:
         self.frame_count = 0
         self.stable_frame_count = 0
         self.weigh_in_count = 0
+        self.unknown_weight_count = 0
+        self._capture: asyncio.Future[dict[str, Any]] | None = None
 
         self._buffer: list[_Frame] = []
         self._finalised = False
@@ -211,6 +218,9 @@ class AnkoScaleCoordinator:
             except KeyError, ValueError, TypeError:
                 _LOGGER.debug("Dropping unreadable pending measurement")
         self._expire_pending()
+        for pending in self.pending:
+            if pending.reason == "no_match":
+                self._create_unknown_issue(pending)
 
     @callback
     def async_start(self) -> None:
@@ -239,6 +249,8 @@ class AnkoScaleCoordinator:
         self._unsubs.clear()
         self._cancel_settle_timer()
         self._cancel_force_timer()
+        if self._capture is not None and not self._capture.done():
+            self._capture.cancel()
         await self._store.async_save(self._serialise())
 
     # -------------------------------------------------------------- listeners
@@ -381,6 +393,11 @@ class AnkoScaleCoordinator:
     def _handle_weigh_in(
         self, weight_kg: float, impedance_ohm: float, timestamp: datetime
     ) -> None:
+        if self._capture is not None and not self._capture.done():
+            self._capture.set_result(
+                {"weight_kg": weight_kg, "timestamp": timestamp.isoformat()}
+            )
+            return
         self._expire_pending()
         self.weigh_in_count += 1
         force = self._active_force()
@@ -485,7 +502,12 @@ class AnkoScaleCoordinator:
             for c in result.candidates
         ]
         pending = PendingMeasurement(
-            secrets.token_hex(4), weight_kg, impedance_ohm, timestamp, candidates
+            secrets.token_hex(4),
+            weight_kg,
+            impedance_ohm,
+            timestamp,
+            candidates,
+            result.reason,
         )
         self.pending.append(pending)
         del self.pending[:-MAX_PENDING]
@@ -503,6 +525,30 @@ class AnkoScaleCoordinator:
             },
         )
         self._send_notifications(pending)
+        if pending.reason == "no_match":
+            self.unknown_weight_count += 1
+            _LOGGER.info(
+                "Weigh-in of %.1f kg matches nobody; offering to add a person",
+                weight_kg,
+            )
+            self._create_unknown_issue(pending)
+
+    def _create_unknown_issue(self, pending: PendingMeasurement) -> None:
+        """Offer to add a person for a weight that matches nobody."""
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            f"unknown_weight_{pending.pending_id}",
+            is_fixable=True,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="unknown_weight",
+            translation_placeholders={"weight": f"{pending.weight_kg:.1f}"},
+            data={
+                "entry_id": self.entry.entry_id,
+                "pending_id": pending.pending_id,
+                "weight_kg": pending.weight_kg,
+            },
+        )
 
     def _send_notifications(self, pending: PendingMeasurement) -> None:
         names = {p.profile_id: p.display_name for p in self.persons}
@@ -577,6 +623,7 @@ class AnkoScaleCoordinator:
         persistent_notification.async_dismiss(
             self.hass, f"{DOMAIN}_{pending.pending_id}"
         )
+        ir.async_delete_issue(self.hass, DOMAIN, f"unknown_weight_{pending.pending_id}")
         self._schedule_save()
 
     def _find_pending(self, pending_id: str) -> PendingMeasurement:
@@ -590,6 +637,23 @@ class AnkoScaleCoordinator:
         )
 
     # ---------------------------------------------------------- public actions
+
+    async def async_capture_measurement(self, wait_s: int) -> dict[str, Any]:
+        """Return the next settled weigh-in without assigning it to anyone."""
+        if self._capture is not None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="capture_in_progress"
+            )
+        self._capture = self.hass.loop.create_future()
+        try:
+            async with asyncio.timeout(wait_s):
+                return await self._capture
+        except TimeoutError:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="capture_timeout"
+            ) from None
+        finally:
+            self._capture = None
 
     @callback
     def async_assign_pending(self, pending_id: str, profile_id: str) -> None:

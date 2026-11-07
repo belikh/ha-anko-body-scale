@@ -249,6 +249,20 @@
           "description": "Needed only when more than one scale is configured."
         }
       }
+    },
+    "capture_measurement": {
+      "name": "Capture measurement",
+      "description": "Wait for the next settled weigh-in and return its weight without assigning it to anyone. Nothing is added to a person's history. Fails if nothing arrives before the timeout.",
+      "fields": {
+        "timeout": {
+          "name": "Timeout",
+          "description": "Seconds to wait, 5 to 300."
+        },
+        "config_entry_id": {
+          "name": "Scale",
+          "description": "Needed only when more than one scale is configured."
+        }
+      }
     }
   },
   "exceptions": {
@@ -266,6 +280,43 @@
     },
     "entry_required": {
       "message": "More than one scale is configured. Set config_entry_id."
+    },
+    "capture_timeout": {
+      "message": "No settled weigh-in arrived before the timeout."
+    },
+    "capture_in_progress": {
+      "message": "Another capture is already waiting for a weigh-in."
+    }
+  },
+  "issues": {
+    "unknown_weight": {
+      "title": "A weigh-in matched nobody",
+      "fix_flow": {
+        "step": {
+          "person": {
+            "title": "Add a person",
+            "description": "A weigh-in of {weight} kg did not match anyone on this scale. Add this person to recognise them from now on. The starting weight is the observed weight; change it if it was a one-off.",
+            "data": {
+              "display_name": "Name",
+              "height_cm": "Height (cm)",
+              "sex": "Sex",
+              "birth_date": "Birth date as YYYY-MM-DD (preferred over age)",
+              "age": "Age in years (only if no birth date)",
+              "person_entity": "Person entity (optional, skips this person when not home)",
+              "expected_weight_kg": "Starting weight in kg (optional, helps recognise this person)"
+            }
+          }
+        },
+        "error": {
+          "name_required": "Enter a name.",
+          "name_exists": "Another person already has this name.",
+          "invalid_birth_date": "Enter a past date as YYYY-MM-DD, for example 1985-03-27.",
+          "birth_date_or_age": "Enter a birth date or an age."
+        },
+        "abort": {
+          "entry_gone": "This scale is no longer configured."
+        }
+      }
     }
   }
 }

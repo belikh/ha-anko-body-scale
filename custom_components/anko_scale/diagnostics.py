@@ -64,6 +64,7 @@ async def async_get_config_entry_diagnostics(
             "stable_adverts": coordinator.stable_frame_count,
             "weigh_ins": coordinator.weigh_in_count,
             "pending": len(coordinator.pending),
+            "unknown_weights": coordinator.unknown_weight_count,
         },
         "rssi": coordinator.rssi,
         "last_raw_frame": raw,

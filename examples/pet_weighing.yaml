@@ -1,0 +1,97 @@
+# Example: weigh a pet by difference (owner + pet, minus owner).
+#
+# Needs: a TTS entity (tts.home_assistant_cloud below) and a media player.
+# Replace the entity IDs in the three `variables` lines and the helper names.
+# Nothing is added to anyone's weight history: `capture_measurement` returns
+# the next settled weight and skips attribution.
+#
+# Create the helpers first (Settings > Devices & services > Helpers):
+#   input_number.pet_weight_kg   min 0, max 100, step 0.01, unit kg
+#   input_datetime.pet_weighed   date and time
+#
+# Start it from a dashboard button (tap_action: perform-action, script.weigh_pet).
+script:
+  weigh_pet:
+    alias: Weigh the pet
+    mode: single
+    fields:
+      pet_name:
+        name: Pet name
+        default: the pet
+    variables:
+      speaker: media_player.kitchen_speaker
+      tts_engine: tts.home_assistant_cloud
+      timeout_s: 60
+    sequence:
+      - action: tts.speak
+        target:
+          entity_id: "{{ tts_engine }}"
+        data:
+          media_player_entity_id: "{{ speaker }}"
+          message: "Pick up {{ pet_name }} and step on the scale."
+      - action: anko_scale.capture_measurement
+        data:
+          timeout: "{{ timeout_s }}"
+        response_variable: with_pet
+        continue_on_error: true
+      - if: "{{ with_pet is not defined }}"
+        then:
+          - action: tts.speak
+            target:
+              entity_id: "{{ tts_engine }}"
+            data:
+              media_player_entity_id: "{{ speaker }}"
+              message: "I did not get a reading. Cancelling the pet weigh-in."
+          - stop: No reading with the pet
+            error: false
+      - action: tts.speak
+        target:
+          entity_id: "{{ tts_engine }}"
+        data:
+          media_player_entity_id: "{{ speaker }}"
+          message: "Got it. Put {{ pet_name }} down and step on the scale again."
+      # Give the scale time to switch off between the two weigh-ins.
+      - delay: "00:00:15"
+      - action: anko_scale.capture_measurement
+        data:
+          timeout: "{{ timeout_s }}"
+        response_variable: owner_only
+        continue_on_error: true
+      - if: "{{ owner_only is not defined }}"
+        then:
+          - action: tts.speak
+            target:
+              entity_id: "{{ tts_engine }}"
+            data:
+              media_player_entity_id: "{{ speaker }}"
+              message: "I did not get the second reading. Cancelling."
+          - stop: No reading without the pet
+            error: false
+      - variables:
+          pet_kg: "{{ ((with_pet.weight_kg - owner_only.weight_kg) | round(2)) }}"
+      - if: "{{ pet_kg <= 0 }}"
+        then:
+          - action: tts.speak
+            target:
+              entity_id: "{{ tts_engine }}"
+            data:
+              media_player_entity_id: "{{ speaker }}"
+              message: "The second reading was heavier than the first. Try again."
+          - stop: Negative pet weight
+            error: false
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.pet_weight_kg
+        data:
+          value: "{{ pet_kg }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.pet_weighed
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: tts.speak
+        target:
+          entity_id: "{{ tts_engine }}"
+        data:
+          media_player_entity_id: "{{ speaker }}"
+          message: "{{ pet_name | capitalize }} weighs {{ pet_kg }} kilograms."
