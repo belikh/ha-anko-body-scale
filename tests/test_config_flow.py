@@ -173,3 +173,18 @@ async def test_options_settings(hass: HomeAssistant) -> None:
     assert result["data"]["history_size"] == 20
     assert result["data"]["notify_service"] == "notify.mobile_app_phone"
     assert len(result["data"]["persons"]) == 1
+
+
+async def test_birth_date_typed_and_validated(hass: HomeAssistant) -> None:
+    entry = _entry(hass)
+    result = await _menu(hass, entry, "add_person")
+    bad = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {**PERSON_INPUT, "display_name": "Sarah", "birth_date": "27/03/1985"},
+    )
+    assert bad["errors"] == {"birth_date": "invalid_birth_date"}
+    good = await hass.config_entries.options.async_configure(
+        bad["flow_id"],
+        {**PERSON_INPUT, "display_name": "Sarah", "birth_date": "1985-03-27"},
+    )
+    assert good["data"]["persons"][1]["birth_date"] == "1985-03-27"

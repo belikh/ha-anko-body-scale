@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+### Changed
+
+*   Birth date is a text field (`YYYY-MM-DD`) instead of a calendar picker
+    that moved one month at a time.
+
 ## 1.1.0
 
 ### Added

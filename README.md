@@ -66,7 +66,7 @@ The config entry upgrades in place. The existing profile becomes **Person 1** (p
 
 | Item | What it does |
 |---|---|
-| Add a person | Name, height, sex, birth date or age, optional `person` entity, optional starting weight. |
+| Add a person | Name, height, sex, birth date (typed as YYYY-MM-DD) or age, optional `person` entity, optional starting weight. |
 | Edit a person | Changes the same fields. The profile ID, and so the entity IDs, stay the same. |
 | Delete a person | Removes their device and entities. At least one person must remain. |
 | Attribution settings | Tolerance, margin, history size, pending timeout and an optional notify action. |

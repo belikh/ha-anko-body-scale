@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import voluptuous as vol
@@ -97,7 +98,7 @@ def person_schema(current: dict[str, Any] | None = None) -> vol.Schema:
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            _optional(CONF_BIRTH_DATE, current): selector.DateSelector(),
+            _optional(CONF_BIRTH_DATE, current): selector.TextSelector(),
             vol.Required(CONF_AGE, default=current.get(CONF_AGE, DEFAULT_AGE)): _number(
                 5, 120
             ),
@@ -130,6 +131,17 @@ def _validate_person(
         errors[CONF_DISPLAY_NAME] = "name_required"
     elif name.casefold() in {o[CONF_DISPLAY_NAME].casefold() for o in others}:
         errors[CONF_DISPLAY_NAME] = "name_exists"
+    raw_birth = person.get(CONF_BIRTH_DATE)
+    if raw_birth:
+        try:
+            parsed = date.fromisoformat(str(raw_birth).strip())
+        except ValueError:
+            errors[CONF_BIRTH_DATE] = "invalid_birth_date"
+        else:
+            if parsed >= date.today():
+                errors[CONF_BIRTH_DATE] = "invalid_birth_date"
+            else:
+                person[CONF_BIRTH_DATE] = parsed.isoformat()
     return errors
 
 
