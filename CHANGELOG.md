@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0
+
+### Changed
+
+*   **Body-fat model.** Fat-free mass now uses the Wu et al. 2015
+    foot-to-foot equation instead of a hand-to-foot equation. **Body fat,
+    fat mass, lean mass, muscle mass, bone mass and body water will change
+    for existing users.**
+*   Impedance outside 325 to 735 Ω, an age under 16, or a result outside
+    50 to 95 % of body weight no longer gets clamped. Body fat comes from
+    BMI (Deurenberg et al. 1991) instead. Affected sensors carry
+    `method: bmi`; the impedance route carries `method: bia`.
+
 ## 1.1.1
 
 ### Changed

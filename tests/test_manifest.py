@@ -18,7 +18,7 @@ MANIFEST: dict[str, Any] = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8")
 
 def test_domain_and_version() -> None:
     assert MANIFEST["domain"] == "anko_scale"
-    assert MANIFEST["version"] == "1.1.1"
+    assert MANIFEST["version"] == "1.2.0"
     assert MANIFEST["name"] == "ANKO Body Scale"
 
 

@@ -1,20 +1,32 @@
-"""Body-composition (BIA) calculations for the ANKO/Senssun BLE scale.
+"""Body-composition calculations for the ANKO/Senssun BLE scale.
 
-These are standard published regression equations used by consumer
-bioelectrical-impedance scales -- the same family of formulas used
-inside $200-$600 "smart" scales. Accuracy versus a DEXA scan is
-inherently +/-3-8% for any single-frequency foot-to-foot BIA device,
-premium or not.
+Fat-free mass (FFM) comes from a foot-to-foot bioelectrical-impedance
+equation. When the impedance is outside the range that equation was
+validated on, or gives an FFM that cannot fit inside the body weight,
+body fat is estimated from BMI instead. The result carries
+``bia_valid`` (1.0 for the impedance route, 0.0 for the BMI route) so
+callers can tell which one produced the numbers.
 
 References:
-  - BMR: Mifflin et al., "A new predictive equation for resting energy
-    expenditure", Am J Clin Nutr 1990.
-  - Fat-free mass from resistance index: Kyle et al., "Bioelectrical
-    impedance analysis", Clin Nutr 2001 (reactance term omitted -- not
-    available from a single-frequency foot-to-foot measurement).
-  - Total body water as a fraction of fat-free mass (~73%): Pace &
-    Rathbun, J Biol Chem 1945.
-  - Healthy body-fat-% reference ranges: American Council on Exercise.
+  - FFM from foot-to-foot impedance: Wu et al., "Predicting body
+    composition using foot-to-foot bioelectrical impedance analysis in
+    healthy Asian individuals", Nutr J 2015;14:52. 554 Taiwanese adults,
+    age 16-75, BMI 15.9-43.1, DXA reference, 50 kHz four-electrode
+    platform. r2 0.92, SEE 3.17 kg. Observed foot-to-foot impedance
+    326-733 ohm. The equation is a single device/population fit, so
+    individual body-fat values carry roughly +/-5 percentage points.
+  - BMI-based body fat: Deurenberg, Weststrate & Seidell, "Body mass
+    index as a measure of body fatness: age- and sex-specific prediction
+    formulas", Br J Nutr 1991;65:105-114. SEE 4.1 % (adults), 4.4 %
+    (children).
+  - BMR: Mifflin et al., Am J Clin Nutr 1990.
+  - Total body water as a fraction of FFM (~73 %): Pace & Rathbun,
+    J Biol Chem 1945.
+  - Reference body-fat midpoints used for metabolic age: American Council
+    on Exercise categories.
+  - Bone mass, metabolic age and visceral fat index have no published
+    consumer-scale equation. They are heuristics and are documented as
+    such in the README.
 
 """
 
@@ -30,6 +42,36 @@ _REFERENCE_BODY_FAT = {
 }
 
 
+# Range of foot-to-foot impedance the Wu et al. equation was fitted on.
+WU_MIN_IMPEDANCE_OHM = 325.0
+WU_MAX_IMPEDANCE_OHM = 735.0
+WU_MIN_AGE = 16
+# Share of body weight that fat-free mass may take before it is rejected.
+MAX_FFM_FRACTION = 0.95
+MIN_FFM_FRACTION = 0.5
+
+
+def _wu_ffm(
+    weight_kg: float, impedance_ohm: float, height_cm: float, age: int, is_male: bool
+) -> float:
+    """Return fat-free mass (kg) from Wu et al. 2015, equation 2."""
+    return (
+        13.055
+        + 0.204 * weight_kg
+        + 0.394 * (height_cm**2) / impedance_ohm
+        - 0.136 * age
+        + 8.125 * (1 if is_male else 0)
+    )
+
+
+def _deurenberg_body_fat(bmi: float, age: int, is_male: bool) -> float:
+    """Return body fat % from BMI (Deurenberg et al. 1991)."""
+    sex = 1 if is_male else 0
+    if age < WU_MIN_AGE:
+        return 1.51 * bmi - 0.70 * age - 3.6 * sex + 1.4
+    return 1.20 * bmi + 0.23 * age - 10.8 * sex - 5.4
+
+
 def calculate_metrics(
     weight_kg: float,
     impedance_ohm: float,
@@ -37,24 +79,24 @@ def calculate_metrics(
     age: int,
     sex: str,
 ) -> dict[str, float]:
-    """Compute the full body-composition suite from a single BIA reading."""
+    """Compute the body-composition suite from one reading."""
     height_m = height_cm / 100.0
     is_male = sex == SEX_MALE
 
     bmi = weight_kg / (height_m**2)
 
-    # Resistance index: the standard BIA predictor variable.
-    resistance_index = (height_cm**2) / impedance_ohm
-
-    # Fat-free mass (Kyle et al. 2001, single-frequency simplification).
-    ffm = (
-        -4.104
-        + 0.518 * resistance_index
-        + 0.231 * weight_kg
-        + 4.229 * (1 if is_male else 0)
-    )
-    # Sanity clamp: FFM must be a plausible fraction of total weight.
-    ffm = max(0.5 * weight_kg, min(ffm, 0.95 * weight_kg))
+    ffm: float | None = None
+    if (
+        age >= WU_MIN_AGE
+        and WU_MIN_IMPEDANCE_OHM <= impedance_ohm <= WU_MAX_IMPEDANCE_OHM
+    ):
+        candidate = _wu_ffm(weight_kg, impedance_ohm, height_cm, age, is_male)
+        if MIN_FFM_FRACTION * weight_kg <= candidate <= MAX_FFM_FRACTION * weight_kg:
+            ffm = candidate
+    bia_valid = ffm is not None
+    if ffm is None:
+        fallback_bf = max(3.0, min(60.0, _deurenberg_body_fat(bmi, age, is_male)))
+        ffm = weight_kg * (1 - fallback_bf / 100.0)
 
     fat_mass = weight_kg - ffm
     body_fat_percent = (fat_mass / weight_kg) * 100
@@ -62,8 +104,8 @@ def calculate_metrics(
     # Total body water is ~73% of fat-free mass (Pace & Rathbun).
     body_water_percent = (ffm * 0.732 / weight_kg) * 100
 
-    # Bone mineral mass as a fraction of FFM, with a small sex offset
-    # (women average ~10% lower bone density than men).
+    # Heuristic (no published consumer-scale equation): bone mineral as a
+    # fraction of FFM, with a small sex offset.
     bone_fraction = 0.0521 if is_male else 0.0490
     bone_mass = ffm * bone_fraction
 
@@ -81,7 +123,7 @@ def calculate_metrics(
     reference_bf = _REFERENCE_BODY_FAT[sex]
     metabolic_age = max(15, age + (body_fat_percent - reference_bf))
 
-    # Visceral fat index (1-30 scale, Omron/Tanita-style heuristic)
+    # Heuristic (no published equation): visceral fat index on a 1-30 scale
     # from BMI, age and sex -- no waist measurement is available.
     visceral_fat = 1.5 * (bmi - 22) + 0.1 * age + (2 if is_male else 0)
     visceral_fat = max(1, min(30, visceral_fat))
@@ -103,4 +145,5 @@ def calculate_metrics(
         "visceral_fat_index": round(visceral_fat, 1),
         "ideal_weight_min_kg": round(ideal_weight_min, 1),
         "ideal_weight_max_kg": round(ideal_weight_max, 1),
+        "bia_valid": 1.0 if bia_valid else 0.0,
     }

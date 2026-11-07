@@ -6,6 +6,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _MODULE_PATH = (
     Path(__file__).resolve().parent.parent
     / "custom_components"
@@ -42,6 +44,7 @@ def test_calculate_metrics_keys_and_sanity() -> None:
         "visceral_fat_index",
         "ideal_weight_min_kg",
         "ideal_weight_max_kg",
+        "bia_valid",
     }
     assert metrics["bmi"] == round(70.0 / 1.75**2, 1)
     fat_mass = metrics["fat_mass_kg"]
@@ -56,3 +59,38 @@ def test_calculate_metrics_female_bmr_differs() -> None:
     male = calculate_metrics(65.0, 550.0, 165, 35, "male")
     female = calculate_metrics(65.0, 550.0, 165, 35, "female")
     assert female["bmr"] < male["bmr"]
+
+
+def test_wu_equation_matches_hand_calculation() -> None:
+    metrics = calculate_metrics(70.0, 500.0, 175, 30, "male")
+    ffm = 13.055 + 0.204 * 70 + 0.394 * 175**2 / 500 - 0.136 * 30 + 8.125
+    assert metrics["bia_valid"] == 1.0
+    assert metrics["lean_mass_kg"] == round(ffm, 2)
+    assert metrics["body_fat_percent"] == round((70 - ffm) / 70 * 100, 1)
+
+
+def test_implausible_ffm_falls_back_to_bmi() -> None:
+    # Live reading: 329 ohm gives an FFM above body weight in the Wu equation.
+    metrics = calculate_metrics(61.55, 329.3, 183, 30, "male")
+    bmi = 61.55 / 1.83**2
+    expected = 1.20 * bmi + 0.23 * 30 - 10.8 - 5.4
+    assert metrics["bia_valid"] == 0.0
+    assert metrics["body_fat_percent"] == round(expected, 1)
+    assert metrics["fat_mass_kg"] + metrics["lean_mass_kg"] == pytest.approx(
+        61.55, abs=0.01
+    )
+
+
+def test_impedance_outside_validated_range_falls_back() -> None:
+    low = calculate_metrics(70.0, 200.0, 175, 30, "male")
+    high = calculate_metrics(70.0, 900.0, 175, 30, "male")
+    assert low["bia_valid"] == 0.0
+    assert high["bia_valid"] == 0.0
+
+
+def test_child_uses_child_bmi_formula() -> None:
+    metrics = calculate_metrics(40.0, 600.0, 150, 12, "female")
+    bmi = 40.0 / 1.5**2
+    expected = 1.51 * bmi - 0.70 * 12 + 1.4
+    assert metrics["bia_valid"] == 0.0
+    assert metrics["body_fat_percent"] == round(expected, 1)

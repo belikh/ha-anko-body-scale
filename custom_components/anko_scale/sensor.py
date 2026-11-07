@@ -221,6 +221,17 @@ class _AnkoRestoreSensor(SensorEntity, RestoreEntity):
             return True
         return self._restored_value is not None
 
+    @property
+    def extra_state_attributes(self) -> dict[str, str] | None:
+        """Say whether body composition came from impedance or from BMI."""
+        metrics = self._snapshot().metrics
+        if "bia_valid" not in metrics or self.entity_description.key in (
+            "weight",
+            "impedance",
+        ):
+            return None
+        return {"method": "bia" if metrics["bia_valid"] else "bmi"}
+
     async def async_added_to_hass(self) -> None:
         """Restore the last state and subscribe to new readings."""
         await super().async_added_to_hass()

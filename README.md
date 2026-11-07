@@ -17,7 +17,7 @@ confirmed against nRF Connect captures (Senssun protocol family).
 
 - Setup through the UI with Bluetooth discovery.
 - Passive BLE: the scale broadcasts and Home Assistant listens. Nothing is sent to the internet.
-- Body composition: 14 sensors computed from each settled reading with the published BIA equations in `body_metrics.py`.
+- Body composition: 14 sensors computed from each settled reading. Fat-free mass uses a published foot-to-foot impedance equation, with a BMI-based fallback (see [How body composition is calculated](#how-body-composition-is-calculated)).
 - Multiple people on one scale. Each reading goes to the person whose recent weights are closest (see [How readings are assigned](#how-readings-are-assigned)).
 - One device per person, linked to the scale device. Scale-level sensors keep their 1.x entity IDs.
 - Settling buffer: one weigh-in produces one set of values, not one per advert.
@@ -127,6 +127,22 @@ Each person device has the same 14 sensors as the scale device (`sensor.<name>_w
 | Metabolic age | Years |
 | Visceral fat index | 1 to 30 heuristic |
 | Ideal weight (min), (max) | Healthy range for the height (BMI 18.5 to 24.9), diagnostic |
+
+## How body composition is calculated
+
+| Value | Method | Source |
+|---|---|---|
+| Fat-free mass, body fat, fat mass, lean mass | `13.055 + 0.204·weight + 0.394·height²/impedance − 0.136·age + 8.125·(male=1)` | Wu et al., Nutr J 2015;14:52. Foot-to-foot, 554 Taiwanese adults aged 16 to 75, DXA reference, SEE 3.17 kg |
+| Body fat fallback | `1.20·BMI + 0.23·age − 10.8·(male=1) − 5.4` (under 16: `1.51·BMI − 0.70·age − 3.6·(male=1) + 1.4`) | Deurenberg et al., Br J Nutr 1991;65:105. SEE 4.1 % |
+| Basal metabolic rate | Mifflin-St Jeor | Mifflin et al., Am J Clin Nutr 1990 |
+| Body water | 73.2 % of fat-free mass | Pace & Rathbun, J Biol Chem 1945 |
+| Muscle mass, bone mass, visceral fat index, metabolic age | Heuristics. No published consumer-scale equation exists. | Treat as trends, not measurements |
+
+The impedance equation is used only when the impedance is between 325 and 735 Ω (the range Wu et al. observed), the person is 16 or older, and the result is between 50 % and 95 % of body weight. Otherwise body fat comes from BMI. Each body-composition sensor has a `method` attribute: `bia` or `bmi`.
+
+If your scale always reports `bmi`, its impedance is outside that range. Open an issue with a weigh-in, the weight and the body-fat figure the MovingLife app shows for it.
+
+Foot-to-foot impedance gives an individual body-fat error of roughly ±5 percentage points.
 
 ## Actions
 
