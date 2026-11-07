@@ -1,6 +1,11 @@
 {
   "domain": "anko_scale",
   "name": "ANKO Body Scale",
+  "bluetooth": [
+    {
+      "local_name": "IF_B7"
+    }
+  ],
   "codeowners": ["@belikh"],
   "config_flow": true,
   "dependencies": ["bluetooth"],
@@ -8,10 +13,5 @@
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/belikh/ha-anko-body-scale/issues",
-  "bluetooth": [
-    {
-      "local_name": "IF_B7"
-    }
-  ],
   "version": "1.0.0"
 }
