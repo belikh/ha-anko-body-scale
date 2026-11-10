@@ -7,6 +7,10 @@
           "address": "Device"
         }
       },
+      "bluetooth_confirm": {
+        "title": "Add {name}?",
+        "description": "Home Assistant found an ANKO body scale ({name}) in Bluetooth range. Add it only if it is yours."
+      },
       "profile": {
         "title": "First person",
         "description": "Enter the details of a person who uses this scale. More people can be added later with Configure. Give a birth date or an age. Details drive the body-composition calculations.",

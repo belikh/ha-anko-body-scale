@@ -157,11 +157,11 @@ All actions take an optional `config_entry_id`, needed only with more than one s
 | Action | Fields | Effect |
 |---|---|---|
 | `anko_scale.assign_measurement` | `pending_id`, `person_id` | Publishes the pending weigh-in for that person and fires `anko_scale_weigh_in`. |
-| `anko_scale.discard_measurement` | `pending_id` | Drops a pending weigh-in. |
+| `anko_scale.discard_measurement` | `pending_id` | Drops a pending weigh-in. Admin users only. |
 | `anko_scale.reassign_measurement` | `person_id` | Moves the last attributed weigh-in to another person and restores the previous owner's values. Not available after a restart. |
 | `anko_scale.capture_measurement` | `timeout` (5 to 300 s, default 60) | Waits for the next settled weigh-in and returns `weight_kg` and `timestamp` as the action response. The reading is not assigned and nothing enters anyone's history. Fails with an error at the timeout. |
 | `anko_scale.set_next_person` | `person_id` (empty clears) | Same as the **Weighing in** button. |
-| `anko_scale.reset_person_history` | `person_id` | Clears the stored weights; the starting weight, if set, is used again. |
+| `anko_scale.reset_person_history` | `person_id` | Clears the stored weights; the starting weight, if set, is used again. Admin users only. |
 
 ## Events
 

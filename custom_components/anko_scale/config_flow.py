@@ -188,7 +188,20 @@ class AnkoScaleConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
         self._address = discovery_info.address
         self._title = discovery_info.name or self._title
-        return await self.async_step_profile()
+        self.context["title_placeholders"] = {"name": self._title}
+        return await self.async_step_bluetooth_confirm()
+
+    async def async_step_bluetooth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask before adding a discovered scale, so a neighbour's scale is not added silently."""
+        if user_input is not None:
+            return await self.async_step_profile()
+        self._set_confirm_only()
+        return self.async_show_form(
+            step_id="bluetooth_confirm",
+            description_placeholders={"name": self._title},
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None

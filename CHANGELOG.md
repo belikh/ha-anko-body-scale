@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.1
+
+### Changed
+
+*   **Admin-only actions.** `anko_scale.discard_measurement` and
+    `anko_scale.reset_person_history` now require an administrator. Other
+    actions are unchanged.
+*   **Bluetooth discovery asks first.** A discovered scale shows an "Add
+    <name>?" step before the profile form, so a neighbour's scale is not
+    added by accident.
+
 ## 1.3.0
 
 ### Added

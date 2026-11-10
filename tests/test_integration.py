@@ -570,3 +570,26 @@ async def test_scale_body_sensors_are_removed(
         assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_{key}")
     # Person sensors are untouched.
     assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_alice_bmi")
+
+
+async def test_destructive_services_require_admin(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    from homeassistant.core import Context
+    from homeassistant.exceptions import Unauthorized
+
+    from custom_components.anko_scale import SERVICE_DISCARD, SERVICE_RESET_HISTORY
+
+    entry = _entry(2, {"persons": [ALICE, BOB]})
+    await _setup(hass, entry)
+    await hass.auth.async_create_user("owner", group_ids=["system-admin"])
+    user = await hass.auth.async_create_user("viewer", group_ids=["system-users"])
+    assert not user.is_admin
+    for service, data in (
+        (SERVICE_DISCARD, {"pending_id": "x"}),
+        (SERVICE_RESET_HISTORY, {"person_id": "alice"}),
+    ):
+        with pytest.raises(Unauthorized):
+            await hass.services.async_call(
+                DOMAIN, service, data, blocking=True, context=Context(user_id=user.id)
+            )

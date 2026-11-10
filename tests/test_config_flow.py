@@ -205,3 +205,18 @@ async def test_birth_date_or_age_required(hass: HomeAssistant) -> None:
     person = good["data"]["persons"][1]
     assert "age" not in person
     assert person["birth_date"] == "1985-03-27"
+
+
+async def test_bluetooth_discovery_asks_for_confirmation(hass: HomeAssistant) -> None:
+    from custom_components.anko_scale.config_flow import AnkoScaleConfigFlow
+
+    flow = AnkoScaleConfigFlow()
+    flow.hass = hass
+    flow.context = {"source": "bluetooth"}
+    result = await flow.async_step_bluetooth(
+        SimpleNamespace(address=ADDRESS, name="IF_B7")
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "bluetooth_confirm"
+    result = await flow.async_step_bluetooth_confirm({})
+    assert result["step_id"] == "profile"

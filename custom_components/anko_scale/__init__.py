@@ -19,6 +19,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -123,12 +124,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         CAPTURE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(DOMAIN, SERVICE_DISCARD, _discard, DISCARD_SCHEMA)
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_DISCARD, _discard, DISCARD_SCHEMA
+    )
     hass.services.async_register(DOMAIN, SERVICE_REASSIGN, _reassign, PERSON_SCHEMA)
     hass.services.async_register(
         DOMAIN, SERVICE_SET_NEXT_PERSON, _set_next, NEXT_PERSON_SCHEMA
     )
-    hass.services.async_register(DOMAIN, SERVICE_RESET_HISTORY, _reset, PERSON_SCHEMA)
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_RESET_HISTORY, _reset, PERSON_SCHEMA
+    )
     return True
 
 
