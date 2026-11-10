@@ -14,7 +14,15 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .coordinator import AnkoScaleCoordinator
 
-TO_REDACT = {"address", "display_name", "person_entity", "birth_date", "unique_id"}
+TO_REDACT = {
+    "address",
+    "display_name",
+    "person_entity",
+    "birth_date",
+    "unique_id",
+    "profile_id",
+    "notify_service",
+}
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -50,14 +58,14 @@ async def async_get_config_entry_diagnostics(
         ),
         "persons": [
             {
-                "profile_id": person.profile_id,
+                "index": index,
                 "has_person_entity": person.person_entity is not None,
                 "history_length": len(coordinator.history.get(person.profile_id, [])),
                 "last_measurement": _iso(
                     coordinator.last_measured.get(person.profile_id)
                 ),
             }
-            for person in coordinator.persons
+            for index, person in enumerate(coordinator.persons)
         ],
         "counts": {
             "adverts": coordinator.frame_count,

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0-rc.3
+
+### Fixed
+
+*   **Diagnostics leaked person names.** `profile_id` (a slug of the display
+    name) and `notify_service` are now redacted in the entry options. The
+    `persons` list reports an `index` instead of the `profile_id`.
+
 ## 1.3.0
 
 ### Added

@@ -330,7 +330,8 @@ async def test_diagnostics_redacts(hass: HomeAssistant, mock_bluetooth: None) ->
         async_get_config_entry_diagnostics,
     )
 
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    alice = {**ALICE, "notify_service": "notify.mobile_app_alices_phone"}
+    entry = _entry(2, {"persons": [alice, BOB]})
     coordinator = await _setup(hass, entry)
     coordinator.last_raw_hex = f"0000:{ADDRESS.replace(':', '').lower()}0102"
     _weigh(coordinator, 61.0)
@@ -338,6 +339,10 @@ async def test_diagnostics_redacts(hass: HomeAssistant, mock_bluetooth: None) ->
     text = str(diag)
     assert ADDRESS not in text
     assert "Alice" not in text
+    assert "alice" not in text.lower()
+    assert "bob" not in text.lower()
+    assert "alices_phone" not in text
+    assert [p["index"] for p in diag["persons"]] == [0, 1]
     assert "history" not in text.replace("history_length", "")
     assert diag["counts"]["weigh_ins"] == 1
 
