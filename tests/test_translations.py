@@ -35,10 +35,12 @@ ENTITY_KEYS: dict[str, set[str]] = {
 }
 
 FLOW_STEPS = {
-    "config": {"user", "profile"},
+    "config": {"user", "profile", "people", "bluetooth_confirm"},
     "options": {
         "init",
         "add_person",
+        "add_from_person",
+        "scale_people",
         "edit_person",
         "edit_person_form",
         "delete_person",
@@ -61,6 +63,10 @@ EXCEPTIONS = {
     "entry_required",
     "capture_timeout",
     "capture_in_progress",
+    "people_unavailable",
+    "no_scale_for_person",
+    "people_missing",
+    "people_adopting",
 }
 
 
@@ -96,6 +102,8 @@ def test_flow_steps_and_errors_present() -> None:
         "invalid_birth_date",
         "birth_date_or_age",
     } <= set(translations["options"]["error"])
+    assert "people_required" in translations["config"]["error"]
+    assert "people_required" in translations["options"]["error"]
     assert {"no_devices_found", "already_configured"} <= set(
         translations["config"]["abort"]
     )

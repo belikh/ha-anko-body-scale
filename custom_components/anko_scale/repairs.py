@@ -14,10 +14,12 @@ from .config_flow import clean_person, new_profile_id, person_schema, validate_p
 from .const import (
     CONF_DISPLAY_NAME,
     CONF_EXPECTED_WEIGHT,
+    CONF_PEOPLE,
     CONF_PERSONS,
     CONF_PROFILE_ID,
     DOMAIN,
 )
+from .people import find_people_entry
 
 
 class AddPersonRepairFlow(RepairsFlow):
@@ -39,8 +41,9 @@ class AddPersonRepairFlow(RepairsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Collect the new person's details."""
-        entry = self.hass.config_entries.async_get_entry(self._entry_id)
-        if entry is None:
+        scale = self.hass.config_entries.async_get_entry(self._entry_id)
+        entry = find_people_entry(self.hass)
+        if scale is None or entry is None:
             return self.async_abort(reason="entry_gone")
         persons = [dict(p) for p in entry.options.get(CONF_PERSONS, [])]
 
@@ -57,6 +60,16 @@ class AddPersonRepairFlow(RepairsFlow):
                     # The pending weigh-in may already be resolved or expired.
                     with contextlib.suppress(ServiceValidationError):
                         coordinator.async_discard_pending(self._pending_id)
+                allowed = scale.options.get(CONF_PEOPLE)
+                if allowed is not None:
+                    # Let the new person use the scale that heard them.
+                    self.hass.config_entries.async_update_entry(
+                        scale,
+                        options={
+                            **scale.options,
+                            CONF_PEOPLE: [*allowed, person[CONF_PROFILE_ID]],
+                        },
+                    )
                 self.hass.config_entries.async_update_entry(
                     entry, options={**entry.options, CONF_PERSONS: [*persons, person]}
                 )

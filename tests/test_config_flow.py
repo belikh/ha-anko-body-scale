@@ -10,7 +10,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.anko_scale.const import DOMAIN
+from custom_components.anko_scale.const import DOMAIN, PEOPLE_UNIQUE_ID
+from custom_components.anko_scale.people import find_people_entry
 
 from .conftest import ADDRESS
 
@@ -22,7 +23,9 @@ PERSON_INPUT = {
 }
 
 
-async def test_user_flow_creates_v2_entry(hass: HomeAssistant) -> None:
+async def test_first_scale_creates_people_entry_and_scale(
+    hass: HomeAssistant,
+) -> None:
     info = SimpleNamespace(address=ADDRESS, name="IF_B7")
     with patch(
         "custom_components.anko_scale.config_flow.async_discovered_service_info",
@@ -40,13 +43,88 @@ async def test_user_flow_creates_v2_entry(hass: HomeAssistant) -> None:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], PERSON_INPUT
         )
+        await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == {"address": ADDRESS}
-    person = result["options"]["persons"][0]
+    assert result["options"] == {}
+    assert result["version"] == 3
+
+    people = find_people_entry(hass)
+    assert people is not None
+    assert people.data == {"entry_type": "people"}
+    person = people.options["persons"][0]
     assert person["profile_id"] == "jupiter"
     assert person["height_cm"] == 180
-    assert result["options"]["margin_kg"] == 2.0
-    assert result["version"] == 2
+    assert people.options["margin_kg"] == 2.0
+
+
+async def test_second_scale_asks_who_uses_it(hass: HomeAssistant) -> None:
+    _people(hass, [JUPITER, SARAH])
+    second = "11:22:33:44:55:66"
+    info = SimpleNamespace(address=second, name="IF_B7")
+    with patch(
+        "custom_components.anko_scale.config_flow.async_discovered_service_info",
+        return_value=[info],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address": second}
+        )
+    assert result["step_id"] == "people"
+    with patch("custom_components.anko_scale.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"people": ["sarah"]}
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["options"] == {"people": ["sarah"]}
+
+
+async def test_second_scale_with_everyone_stores_no_list(
+    hass: HomeAssistant,
+) -> None:
+    _people(hass, [JUPITER, SARAH])
+    second = "11:22:33:44:55:66"
+    info = SimpleNamespace(address=second, name="IF_B7")
+    with patch(
+        "custom_components.anko_scale.config_flow.async_discovered_service_info",
+        return_value=[info],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address": second}
+        )
+    with patch("custom_components.anko_scale.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"people": ["jupiter", "sarah"]}
+        )
+    assert result["options"] == {}
+
+
+async def test_second_scale_with_one_person_skips_the_question(
+    hass: HomeAssistant,
+) -> None:
+    _people(hass, [JUPITER])
+    second = "11:22:33:44:55:66"
+    info = SimpleNamespace(address=second, name="IF_B7")
+    with (
+        patch(
+            "custom_components.anko_scale.config_flow.async_discovered_service_info",
+            return_value=[info],
+        ),
+        patch("custom_components.anko_scale.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address": second}
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["options"] == {}
 
 
 async def test_user_flow_aborts_without_devices(hass: HomeAssistant) -> None:
@@ -61,23 +139,47 @@ async def test_user_flow_aborts_without_devices(hass: HomeAssistant) -> None:
     assert result["reason"] == "no_devices_found"
 
 
-def _entry(hass: HomeAssistant) -> MockConfigEntry:
+JUPITER = {
+    "profile_id": "jupiter",
+    "display_name": "Jupiter",
+    "height_cm": 180,
+    "age": 38,
+    "sex": "male",
+}
+SARAH = {
+    "profile_id": "sarah",
+    "display_name": "Sarah",
+    "height_cm": 165,
+    "age": 35,
+    "sex": "female",
+}
+
+
+def _people(hass: HomeAssistant, persons: list[dict]) -> MockConfigEntry:
     entry = MockConfigEntry(
         domain=DOMAIN,
-        version=2,
+        version=3,
+        unique_id=PEOPLE_UNIQUE_ID,
+        data={"entry_type": "people"},
+        options={"persons": persons},
+        title="People",
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+def _entry(hass: HomeAssistant) -> MockConfigEntry:
+    return _people(hass, [JUPITER])
+
+
+def _scale(hass: HomeAssistant, options: dict | None = None) -> MockConfigEntry:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
         unique_id=ADDRESS,
         data={"address": ADDRESS},
-        options={
-            "persons": [
-                {
-                    "profile_id": "jupiter",
-                    "display_name": "Jupiter",
-                    "height_cm": 180,
-                    "age": 38,
-                    "sex": "male",
-                }
-            ]
-        },
+        options=options or {},
+        title="IF_B7",
     )
     entry.add_to_hass(hass)
     return entry
@@ -220,3 +322,102 @@ async def test_bluetooth_discovery_asks_for_confirmation(hass: HomeAssistant) ->
     assert result["step_id"] == "bluetooth_confirm"
     result = await flow.async_step_bluetooth_confirm({})
     assert result["step_id"] == "profile"
+
+
+async def test_options_add_from_home_assistant_person(hass: HomeAssistant) -> None:
+    entry = _entry(hass)
+    hass.states.async_set("person.sarah", "home", {"friendly_name": "Sarah"})
+    result = await _menu(hass, entry, "add_from_person")
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"person_entity": "person.sarah"}
+    )
+    assert result["step_id"] == "add_person"
+    schema = {str(k): k for k in result["data_schema"].schema}
+    assert schema["display_name"].default() == "Sarah"
+    assert schema["person_entity"].description["suggested_value"] == "person.sarah"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "display_name": "Sarah",
+            "height_cm": 165,
+            "sex": "female",
+            "age": 35,
+            "person_entity": "person.sarah",
+        },
+    )
+    added = result["data"]["persons"][1]
+    assert added["profile_id"] == "sarah"
+    assert added["person_entity"] == "person.sarah"
+
+
+async def test_scale_options_pick_people(hass: HomeAssistant) -> None:
+    _people(hass, [JUPITER, SARAH])
+    scale = _scale(hass)
+    result = await hass.config_entries.options.async_init(scale.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "scale_people"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"people": ["sarah"]}
+    )
+    assert result["data"] == {"people": ["sarah"]}
+
+    # Selecting everyone clears the list, so later additions are included.
+    hass.config_entries.async_update_entry(scale, options={"people": ["sarah"]})
+    result = await hass.config_entries.options.async_init(scale.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"people": ["jupiter", "sarah"]}
+    )
+    assert result["data"] == {}
+
+
+async def test_scale_options_require_a_person(hass: HomeAssistant) -> None:
+    _people(hass, [JUPITER, SARAH])
+    scale = _scale(hass)
+    result = await hass.config_entries.options.async_init(scale.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"people": []}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"people": "people_required"}
+
+
+async def test_deleting_a_person_clears_scale_allowlists(
+    hass: HomeAssistant,
+) -> None:
+    people = _people(hass, [JUPITER, SARAH])
+    both = _scale(hass, {"people": ["jupiter", "sarah"]})
+    only_sarah = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
+        unique_id="11:22:33:44:55:66",
+        data={"address": "11:22:33:44:55:66"},
+        options={"people": ["sarah"]},
+    )
+    only_sarah.add_to_hass(hass)
+    result = await _menu(hass, people, "delete_person")
+    await hass.config_entries.options.async_configure(
+        result["flow_id"], {"profile_id": "sarah"}
+    )
+    assert both.options == {"people": ["jupiter"]}
+    assert only_sarah.options == {"people": []}
+
+
+async def test_second_scale_requires_a_person(hass: HomeAssistant) -> None:
+    _people(hass, [JUPITER, SARAH])
+    second = "11:22:33:44:55:66"
+    info = SimpleNamespace(address=second, name="IF_B7")
+    with patch(
+        "custom_components.anko_scale.config_flow.async_discovered_service_info",
+        return_value=[info],
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"address": second}
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"people": []}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"people": "people_required"}

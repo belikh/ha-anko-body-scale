@@ -9,7 +9,7 @@ import statistics
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -21,38 +21,19 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from . import body_metrics
-from .attribution import (
-    Attribution,
-    PersonProfile,
-    confidence_for,
-    ewma,
-    score,
-    update_expected_weight,
-)
+from .attribution import Attribution, PersonProfile, confidence_for, score
 from .const import (
-    CONF_HISTORY_SIZE,
-    CONF_MARGIN_KG,
-    CONF_NOTIFY_SERVICE,
-    CONF_PENDING_TIMEOUT,
-    CONF_PERSONS,
-    CONF_TOLERANCE_KG,
-    CONF_TOLERANCE_PCT,
-    DEFAULT_HISTORY_SIZE,
-    DEFAULT_MARGIN_KG,
-    DEFAULT_PENDING_TIMEOUT_MIN,
-    DEFAULT_TOLERANCE_KG,
-    DEFAULT_TOLERANCE_PCT,
+    CONF_PEOPLE,
     DOMAIN,
     EVENT_PENDING,
-    EVENT_WEIGH_IN,
     FORCE_ASSIGN_TIMEOUT_S,
     SETTLE_FRAMES,
     SETTLE_SPREAD_KG,
     SETTLE_TIMEOUT_S,
     SETTLE_WINDOW_S,
 )
-from .parser import ScaleReading, assumed_ohms, parse_manufacturer_data
+from .parser import ScaleReading, parse_manufacturer_data
+from .people import PeopleHub
 from .store import AnkoScaleStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,16 +47,6 @@ ACTION_DISCARD_PREFIX = "ANKO_DISCARD"
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
-
-
-@dataclass
-class PersonState:
-    """Latest attributed measurement for one person."""
-
-    weight_kg: float | None = None
-    impedance_raw: float | None = None
-    metrics: dict[str, float] = field(default_factory=dict)
-    measured_at: datetime | None = None
 
 
 @dataclass
@@ -124,54 +95,19 @@ class _Frame:
     impedance_raw: float | None
 
 
-@dataclass
-class _LastMeasurement:
-    """Enough of the previous attribution to undo it on reassignment."""
-
-    profile_id: str
-    weight_kg: float
-    impedance_raw: float | None
-    timestamp: datetime
-    prev_state: PersonState
-    prev_history: list[float]
-
-
 class AnkoScaleCoordinator:
     """Receives passive BLE adverts and publishes attributed weigh-ins."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialise the coordinator for one config entry."""
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, hub: PeopleHub) -> None:
+        """Initialise the coordinator for one scale entry."""
         self.hass = hass
         self.entry = entry
+        self.hub = hub
         self.address: str = entry.data["address"]
-        options = entry.options
-        self.persons: list[PersonProfile] = [
-            PersonProfile.from_dict(p) for p in options.get(CONF_PERSONS, [])
-        ]
-        self.tolerance_kg: float = options.get(CONF_TOLERANCE_KG, DEFAULT_TOLERANCE_KG)
-        self.tolerance_pct: float = options.get(
-            CONF_TOLERANCE_PCT, DEFAULT_TOLERANCE_PCT
-        )
-        self.margin_kg: float = options.get(CONF_MARGIN_KG, DEFAULT_MARGIN_KG)
-        self.history_size: int = int(
-            options.get(CONF_HISTORY_SIZE, DEFAULT_HISTORY_SIZE)
-        )
-        self.pending_timeout = timedelta(
-            minutes=options.get(CONF_PENDING_TIMEOUT, DEFAULT_PENDING_TIMEOUT_MIN)
-        )
-        self.notify_service: str | None = options.get(CONF_NOTIFY_SERVICE) or None
+        self.pending_timeout = timedelta(minutes=hub.pending_timeout_min)
 
         self.reading: ScaleReading | None = None
-        self.last_person: str | None = None
-        self.person_states: dict[str, PersonState] = {
-            p.profile_id: PersonState() for p in self.persons
-        }
         self.pending: list[PendingMeasurement] = []
-        self.history: dict[str, list[float]] = {p.profile_id: [] for p in self.persons}
-        self.last_measured: dict[str, datetime | None] = {
-            p.profile_id: None for p in self.persons
-        }
-        self._last_measurement: _LastMeasurement | None = None
 
         self._force_profile_id: str | None = None
         self._force_expires: float = 0.0
@@ -197,24 +133,8 @@ class AnkoScaleCoordinator:
     # ------------------------------------------------------------------ setup
 
     async def async_load(self) -> None:
-        """Load persisted history and pending queue, then seed new people."""
+        """Load the persisted pending queue."""
         data = await self._store.async_load()
-        stored_persons = data.get("persons", {})
-        for person in self.persons:
-            saved = stored_persons.get(person.profile_id, {})
-            history = [float(v) for v in saved.get("history", [])]
-            self.history[person.profile_id] = history[-self.history_size :]
-            raw_ts = saved.get("last_measurement")
-            if raw_ts:
-                try:
-                    self.last_measured[person.profile_id] = datetime.fromisoformat(
-                        raw_ts
-                    )
-                except ValueError:
-                    _LOGGER.debug("Ignoring bad stored timestamp %s", raw_ts)
-            if not self.history[person.profile_id] and person.expected_weight_kg:
-                self.history[person.profile_id] = [float(person.expected_weight_kg)]
-
         for raw in data.get("pending", []):
             try:
                 self.pending.append(PendingMeasurement.from_dict(raw))
@@ -228,6 +148,7 @@ class AnkoScaleCoordinator:
     @callback
     def async_start(self) -> None:
         """Start listening for adverts, notification actions and expiry."""
+        self._unsubs.append(self.hub.register_scale(self))
         self._unsubs.append(
             bluetooth.async_register_callback(
                 self.hass,
@@ -269,7 +190,8 @@ class AnkoScaleCoordinator:
 
         return _remove
 
-    def _notify(self) -> None:
+    def notify(self) -> None:
+        """Tell this scale's entities that state changed."""
         for update_listener in list(self._listeners):
             update_listener()
 
@@ -318,7 +240,7 @@ class AnkoScaleCoordinator:
             self._buffer.clear()
             self._finalised = False
 
-        self._notify()
+        self.notify()
 
         if self._buffer:
             self._settle_cancel = async_call_later(
@@ -369,19 +291,21 @@ class AnkoScaleCoordinator:
 
     # ------------------------------------------------------------ attribution
 
-    def expected_weights(self) -> dict[str, float]:
-        """Return the EWMA expected weight for every person with history."""
-        return {pid: ewma(history) for pid, history in self.history.items() if history}
+    @property
+    def allowed_ids(self) -> list[str] | None:
+        """Return the people allowed on this scale; None means everyone."""
+        allowed = self.entry.options.get(CONF_PEOPLE)
+        return list(allowed) if allowed is not None else None
 
-    def _excluded(self) -> set[str]:
-        excluded: set[str] = set()
-        for person in self.persons:
-            if not person.person_entity:
-                continue
-            state = self.hass.states.get(person.person_entity)
-            if state is not None and state.state == "not_home":
-                excluded.add(person.profile_id)
-        return excluded
+    @property
+    def persons(self) -> list[PersonProfile]:
+        """Return the people this scale may attribute readings to."""
+        return self.hub.persons_for(self.allowed_ids)
+
+    @property
+    def last_person(self) -> str | None:
+        """Return the name of the last person weighed on this scale."""
+        return self.hub.last_person_by_scale.get(self.entry.entry_id)
 
     def _active_force(self) -> str | None:
         if self._force_profile_id and time.monotonic() <= self._force_expires:
@@ -408,12 +332,12 @@ class AnkoScaleCoordinator:
         result = score(
             weight_kg,
             self.persons,
-            self.expected_weights(),
-            excluded=self._excluded(),
+            self.hub.expected_weights(),
+            excluded=self.hub.excluded(),
             force_profile_id=force,
-            tolerance_kg=self.tolerance_kg,
-            tolerance_pct=self.tolerance_pct,
-            margin_kg=self.margin_kg,
+            tolerance_kg=self.hub.tolerance_kg,
+            tolerance_pct=self.hub.tolerance_pct,
+            margin_kg=self.hub.margin_kg,
         )
         if force is not None:
             self._force_profile_id = None
@@ -424,22 +348,12 @@ class AnkoScaleCoordinator:
                 weight_kg,
                 impedance_raw,
                 timestamp,
-                confidence_for(result, self.margin_kg),
+                confidence_for(result, self.hub.margin_kg),
                 result.reason,
             )
         else:
             self._add_pending(weight_kg, impedance_raw, timestamp, result)
-        self._notify()
-
-    def _profile(self, profile_id: str) -> PersonProfile:
-        for person in self.persons:
-            if person.profile_id == profile_id:
-                return person
-        raise ServiceValidationError(
-            translation_domain=DOMAIN,
-            translation_key="unknown_person",
-            translation_placeholders={"person": profile_id},
-        )
+        self.notify()
 
     def _publish(
         self,
@@ -450,45 +364,14 @@ class AnkoScaleCoordinator:
         confidence: float,
         source: str,
     ) -> None:
-        profile = self._profile(profile_id)
-        metrics = body_metrics.calculate_metrics(
-            weight_kg=weight_kg,
-            impedance_ohm=assumed_ohms(impedance_raw),
-            height_cm=profile.height_cm,
-            age=profile.current_age(dt_util.now().date()),
-            sex=profile.sex,
-        )
-        previous_state = self.person_states.get(profile_id, PersonState())
-        previous_history = list(self.history.get(profile_id, []))
-        self._last_measurement = _LastMeasurement(
+        self.hub.publish(
+            self.entry.entry_id,
             profile_id,
             weight_kg,
             impedance_raw,
             timestamp,
-            previous_state,
-            previous_history,
-        )
-        self.person_states[profile_id] = PersonState(
-            weight_kg, impedance_raw, metrics, timestamp
-        )
-        self.history[profile_id], _ = update_expected_weight(
-            previous_history, weight_kg, self.history_size
-        )
-        self.last_measured[profile_id] = timestamp
-        self.last_person = profile.display_name
-        self._schedule_save()
-        self.hass.bus.async_fire(
-            EVENT_WEIGH_IN,
-            {
-                "entry_id": self.entry.entry_id,
-                "person_id": profile_id,
-                "person_name": profile.display_name,
-                "weight_kg": weight_kg,
-                "impedance_raw": impedance_raw,
-                "confidence": confidence,
-                "source": source,
-                "timestamp": timestamp.isoformat(),
-            },
+            confidence,
+            source,
         )
 
     # ---------------------------------------------------------------- pending
@@ -554,7 +437,7 @@ class AnkoScaleCoordinator:
         )
 
     def _send_notifications(self, pending: PendingMeasurement) -> None:
-        names = {p.profile_id: p.display_name for p in self.persons}
+        names = {p.profile_id: p.display_name for p in self.hub.persons}
         ordered = [c["person_id"] for c in pending.candidates] or list(names)
         message = (
             f"A {pending.weight_kg:.1f} kg weigh-in could not be matched to one "
@@ -567,9 +450,10 @@ class AnkoScaleCoordinator:
             title="ANKO scale: who was that?",
             notification_id=f"{DOMAIN}_{pending.pending_id}",
         )
-        if not self.notify_service or "." not in self.notify_service:
+        notify_service = self.hub.notify_service
+        if not notify_service or "." not in notify_service:
             return
-        domain, service = self.notify_service.split(".", 1)
+        domain, service = notify_service.split(".", 1)
         actions = [
             {
                 "action": f"{ACTION_ASSIGN_PREFIX}|{pending.pending_id}|{pid}",
@@ -619,7 +503,7 @@ class AnkoScaleCoordinator:
         before = len(self.pending)
         self._expire_pending()
         if len(self.pending) != before:
-            self._notify()
+            self.notify()
 
     def _drop_pending(self, pending: PendingMeasurement) -> None:
         self.pending.remove(pending)
@@ -661,7 +545,7 @@ class AnkoScaleCoordinator:
     @callback
     def async_assign_pending(self, pending_id: str, profile_id: str) -> None:
         """Assign a pending weigh-in to a person and publish their metrics."""
-        self._profile(profile_id)
+        self.hub.profile(profile_id)
         pending = self._find_pending(pending_id)
         self._drop_pending(pending)
         self._publish(
@@ -672,36 +556,13 @@ class AnkoScaleCoordinator:
             1.0,
             "assigned",
         )
-        self._notify()
+        self.notify()
 
     @callback
     def async_discard_pending(self, pending_id: str) -> None:
         """Discard a pending weigh-in (a guest). No profile is created."""
         self._drop_pending(self._find_pending(pending_id))
-        self._notify()
-
-    @callback
-    def async_reassign_last(self, profile_id: str) -> None:
-        """Move the most recent attributed weigh-in to another person."""
-        self._profile(profile_id)
-        last = self._last_measurement
-        if last is None:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN, translation_key="no_last_measurement"
-            )
-        if last.profile_id == profile_id:
-            return
-        self.person_states[last.profile_id] = last.prev_state
-        self.history[last.profile_id] = last.prev_history
-        self._publish(
-            profile_id,
-            last.weight_kg,
-            last.impedance_raw,
-            last.timestamp,
-            1.0,
-            "reassigned",
-        )
-        self._notify()
+        self.notify()
 
     @callback
     def async_set_next_person(self, profile_id: str | None) -> None:
@@ -710,14 +571,14 @@ class AnkoScaleCoordinator:
             self._force_profile_id = None
             self._cancel_force_timer()
         else:
-            self._profile(profile_id)
+            self.hub.profile(profile_id)
             self._force_profile_id = profile_id
             self._force_expires = time.monotonic() + FORCE_ASSIGN_TIMEOUT_S
             self._cancel_force_timer()
             self._force_cancel = async_call_later(
                 self.hass, FORCE_ASSIGN_TIMEOUT_S + 0.5, self._async_force_expired
             )
-        self._notify()
+        self.notify()
 
     def _cancel_force_timer(self) -> None:
         if self._force_cancel:
@@ -729,32 +590,12 @@ class AnkoScaleCoordinator:
         self._force_cancel = None
         if self._force_profile_id and time.monotonic() > self._force_expires:
             self._force_profile_id = None
-            self._notify()
-
-    @callback
-    def async_reset_person_history(self, profile_id: str) -> None:
-        """Forget a person's weight history (re-seeding from their setting)."""
-        profile = self._profile(profile_id)
-        self.history[profile_id] = (
-            [float(profile.expected_weight_kg)] if profile.expected_weight_kg else []
-        )
-        self._schedule_save()
-        self._notify()
+            self.notify()
 
     # ------------------------------------------------------------ persistence
 
     def _serialise(self) -> dict[str, Any]:
-        return {
-            "persons": {
-                pid: {
-                    "history": self.history.get(pid, []),
-                    "last_measurement": _iso(self.last_measured.get(pid)),
-                    "last_impedance_raw": self.person_states[pid].impedance_raw,
-                }
-                for pid in self.person_states
-            },
-            "pending": [p.to_dict() for p in self.pending],
-        }
+        return {"pending": [p.to_dict() for p in self.pending]}
 
     def _schedule_save(self) -> None:
         self._store.async_schedule_save(self._serialise)

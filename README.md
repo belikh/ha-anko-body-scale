@@ -19,8 +19,8 @@ confirmed against nRF Connect captures (Senssun protocol family).
 - Setup through the UI with Bluetooth discovery.
 - Passive BLE: the scale broadcasts and Home Assistant listens. Nothing is sent to the internet.
 - Body composition: 14 sensors computed from each settled reading. Fat-free mass uses a published foot-to-foot impedance equation, with a BMI-based fallback (see [How body composition is calculated](#how-body-composition-is-calculated)).
-- Multiple people on one scale. Each reading goes to the person whose recent weights are closest (see [How readings are assigned](#how-readings-are-assigned)).
-- One device per person, linked to the scale device. The scale device keeps its weight, raw impedance and reading-stable entities.
+- Multiple people and multiple scales. People are defined once and shared by every scale. Each reading goes to the person whose recent weights are closest (see [How readings are assigned](#how-readings-are-assigned)). Each scale can be limited to some of the people (see [Several scales](#several-scales)).
+- One device per person, shared by all scales. Each scale device keeps its weight, raw impedance and reading-stable entities.
 - Settling buffer: one weigh-in produces one set of values, not one per advert.
 - Expected weights and the pending queue persist across restarts.
 - Ambiguous readings wait as pending measurements, with services, events and optional mobile notifications to resolve them.
@@ -53,26 +53,47 @@ install **ANKO Body Scale** and restart Home Assistant.
 1. Go to **Settings → Devices & Services → Add Integration** and search for **ANKO Body Scale**. If the scale is powered and in range, Home Assistant usually shows a discovery card.
 2. For manual setup, pick the scale (advertised as `IF_B7`) from the list of previously seen devices.
 3. Enter the first person: name, height, sex, and either a birth date or an age. Optional fields: a `person` entity and a starting weight.
-4. The scale device and the person device appear with their entities.
+4. The scale device and the person device appear with their entities. The first setup also creates a second entry, **ANKO Body Scale people**, which holds the people list.
 
 Step on the scale barefoot and stand still until the reading settles.
 
-### Upgrading from 1.x
+### Upgrading from earlier versions
 
-The config entry upgrades in place. The existing profile becomes **Person 1** (profile ID `legacy`). The scale device, its entity IDs (for example `sensor.anko_body_scale_weight`) and their history are unchanged. Rename Person 1 under **Configure → Edit a person**.
+On the first start of 2.0.0 the integration creates the **ANKO Body Scale people** entry and moves each scale's people into it. Entity IDs, entity history and person devices stay the same. A v1 profile becomes **Person 1** (profile ID `legacy`). Person entity unique IDs change from `<address>_<person>_<key>` to `person_<person>_<key>`. A scale's own entities (for example `sensor.anko_body_scale_weight`) are untouched.
+
+If two scales had a person with the same name, they become one person. The weight history of the first scale is kept and the other is dropped (a warning is logged). A scale that had every person follows the full list, so people added later can use it. Otherwise it keeps exactly the people it had before.
+
+During the first start a scale entry can show "retrying" for a few seconds while the People entry loads.
 
 ### Configure
 
-**Configure** on the config entry opens a menu:
+**Configure** on the **ANKO Body Scale people** entry opens a menu:
 
 | Item | What it does |
 |---|---|
 | Add a person | Name, height, sex, birth date (typed as YYYY-MM-DD) or age, optional `person` entity, optional starting weight. |
+| Add from a Home Assistant person | Pick a `person` entity. The new profile takes its name and skips them when they are `not_home`. |
 | Edit a person | Changes the same fields. The profile ID, and so the entity IDs, stay the same. |
 | Delete a person | Removes their device and entities. At least one person must remain. |
-| Attribution settings | Tolerance, margin, history size, pending timeout and an optional notify action. |
+| Attribution settings | Tolerance, margin, history size, pending timeout and an optional notify action. They apply to all scales. |
+
+**Configure** on a scale entry lists the people who use that scale.
 
 Saving reloads the entry. People added or deleted show up or disappear after the reload.
+
+### Several scales
+
+Add each scale through **Add Integration**. When two or more people exist, the setup asks who uses the new scale.
+
+| Scale setting | Result |
+|---|---|
+| Everyone selected (default) | Any person can be weighed on the scale, including people added later. |
+| Some people selected | Only those people are matched on this scale. People added later are not included until you select them. |
+| One person selected | Every reading on the scale goes to that person, with no matching. |
+
+Deleting a person removes them from every scale's list. A scale left with no people holds its readings as pending until you pick people under **Configure** on that scale.
+
+A person weighed on any scale updates the same sensors and weight history. The **Weighing in** button arms the next reading on every scale that allows the person. Scale actions (`assign_measurement`, `discard_measurement`, `set_next_person`, `capture_measurement`) need `config_entry_id` when more than one scale exists. `reassign_measurement` and `reset_person_history` act on people and never need it.
 
 ## How readings are assigned
 
@@ -114,7 +135,7 @@ Scale device (`ANKO Body Scale`):
 | `binary_sensor` | Reading stable | Diagnostic | enabled | `on` when the scale has finished measuring (status byte `0xA1`) |
 | `select` | Next person | — | enabled | One-shot manual assignment |
 
-Each person device has 14 sensors (`sensor.<name>_weight`, `sensor.<name>_body_fat`, and so on) with values from that person's last assigned weigh-in, plus a `button` **Weighing in**. The scale device carries no body-composition sensors.
+Each person device (shared by all scales) has 14 sensors (`sensor.<name>_weight`, `sensor.<name>_body_fat`, and so on) with values from that person's last assigned weigh-in, plus a `button` **Weighing in**. The scale device carries no body-composition sensors.
 
 | Sensor | Description |
 |---|---|
@@ -152,7 +173,7 @@ Foot-to-foot impedance gives an individual body-fat error of roughly ±5 percent
 
 ## Actions
 
-All actions take an optional `config_entry_id`, needed only with more than one scale.
+`assign_measurement`, `discard_measurement`, `set_next_person` and `capture_measurement` take an optional `config_entry_id`, needed only with more than one scale. `reassign_measurement` and `reset_person_history` do not.
 
 | Action | Fields | Effect |
 |---|---|---|

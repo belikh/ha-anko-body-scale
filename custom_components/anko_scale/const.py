@@ -3,6 +3,8 @@
 DOMAIN = "anko_scale"
 
 CONF_ADDRESS = "address"
+CONF_ENTRY_TYPE = "entry_type"
+CONF_PEOPLE = "people"
 CONF_HEIGHT_CM = "height_cm"
 CONF_AGE = "age"
 CONF_SEX = "sex"
@@ -27,8 +29,13 @@ DEFAULT_HEIGHT_CM = 170
 DEFAULT_AGE = 30
 DEFAULT_SEX = SEX_MALE
 
-LEGACY_PROFILE_ID = "legacy"
-LEGACY_DISPLAY_NAME = "Person 1"
+DEFAULT_PERSON_NAME = "Person 1"
+
+ENTRY_TYPE_PEOPLE = "people"
+PEOPLE_UNIQUE_ID = "anko_scale_people"
+PEOPLE_TITLE = "ANKO Body Scale people"
+PERSON_DEVICE_PREFIX = "person:"
+PERSON_UNIQUE_PREFIX = "person_"
 
 DEFAULT_TOLERANCE_KG = 5.0
 DEFAULT_TOLERANCE_PCT = 7.0

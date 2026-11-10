@@ -36,11 +36,6 @@ reassign_measurement:
       example: "sarah"
       selector:
         text:
-    config_entry_id:
-      required: false
-      selector:
-        config_entry:
-          integration: anko_scale
 
 set_next_person:
   fields:
@@ -62,11 +57,6 @@ reset_person_history:
       example: "jupiter"
       selector:
         text:
-    config_entry_id:
-      required: false
-      selector:
-        config_entry:
-          integration: anko_scale
 
 capture_measurement:
   fields:

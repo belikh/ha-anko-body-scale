@@ -18,9 +18,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .attribution import PersonProfile
-from .const import DOMAIN
-from .coordinator import AnkoScaleCoordinator, PersonState
+from .const import DOMAIN, PERSON_UNIQUE_PREFIX
+from .coordinator import AnkoScaleCoordinator
 from .entity import person_device_info, scale_device_info
+from .people import HUB_KEY, PeopleHub, PersonState, is_people_entry
 
 PARALLEL_UPDATES = 0
 
@@ -179,17 +180,21 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up ANKO Body Scale sensors from a config entry."""
+    if is_people_entry(entry):
+        hub = hass.data[HUB_KEY]
+        async_add_entities(
+            AnkoScalePersonSensor(hub, profile, description)
+            for profile in hub.persons
+            for description in SENSOR_DESCRIPTIONS
+        )
+        return
+
     coordinator: AnkoScaleCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SensorEntity] = [
         AnkoScaleSensor(coordinator, description)
         for description in SENSOR_DESCRIPTIONS
         if description.key in SCALE_SENSOR_KEYS
     ]
-    entities.extend(
-        AnkoScalePersonSensor(coordinator, profile, description)
-        for profile in coordinator.persons
-        for description in SENSOR_DESCRIPTIONS
-    )
     entities.append(AnkoScaleLastPersonSensor(coordinator))
     entities.append(AnkoScalePendingCountSensor(coordinator))
     async_add_entities(entities)
@@ -202,11 +207,13 @@ class _AnkoRestoreSensor(SensorEntity, RestoreEntity):
     entity_description: AnkoScaleSensorDescription
 
     def __init__(
-        self, coordinator: AnkoScaleCoordinator, description: AnkoScaleSensorDescription
+        self,
+        source: AnkoScaleCoordinator | PeopleHub,
+        description: AnkoScaleSensorDescription,
     ) -> None:
-        """Initialise from a description and the coordinator."""
+        """Initialise from a description and the object that notifies changes."""
         self.entity_description = description
-        self._coordinator = coordinator
+        self._source = source
         self._restored_value: float | None = None
 
     def _snapshot(self) -> PersonState:
@@ -248,9 +255,7 @@ class _AnkoRestoreSensor(SensorEntity, RestoreEntity):
                 self._restored_value = float(last_state.state)
             except ValueError:
                 self._restored_value = None
-        self.async_on_remove(
-            self._coordinator.async_add_listener(self.async_write_ha_state)
-        )
+        self.async_on_remove(self._source.async_add_listener(self.async_write_ha_state))
 
 
 class AnkoScaleSensor(_AnkoRestoreSensor):
@@ -261,6 +266,7 @@ class AnkoScaleSensor(_AnkoRestoreSensor):
     ) -> None:
         """Initialise the global sensor (unique id format unchanged from 1.x)."""
         super().__init__(coordinator, description)
+        self._coordinator = coordinator
         self._attr_unique_id = f"{coordinator.address}_{description.key}"
         self._attr_device_info = scale_device_info(coordinator.address)
 
@@ -273,24 +279,25 @@ class AnkoScaleSensor(_AnkoRestoreSensor):
 
 
 class AnkoScalePersonSensor(_AnkoRestoreSensor):
-    """A measurement attributed to one person."""
+    """A measurement attributed to one person, from any scale."""
 
     def __init__(
         self,
-        coordinator: AnkoScaleCoordinator,
+        hub: PeopleHub,
         profile: PersonProfile,
         description: AnkoScaleSensorDescription,
     ) -> None:
         """Initialise a per-person sensor."""
-        super().__init__(coordinator, description)
+        super().__init__(hub, description)
+        self._hub = hub
         self._profile_id = profile.profile_id
         self._attr_unique_id = (
-            f"{coordinator.address}_{profile.profile_id}_{description.key}"
+            f"{PERSON_UNIQUE_PREFIX}{profile.profile_id}_{description.key}"
         )
-        self._attr_device_info = person_device_info(coordinator.address, profile)
+        self._attr_device_info = person_device_info(profile)
 
     def _snapshot(self) -> PersonState:
-        return self._coordinator.person_states.get(self._profile_id, PersonState())
+        return self._hub.person_states.get(self._profile_id, PersonState())
 
 
 class AnkoScaleLastPersonSensor(SensorEntity):

@@ -8,9 +8,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .attribution import PersonProfile
-from .const import DOMAIN
-from .coordinator import AnkoScaleCoordinator
+from .const import PERSON_UNIQUE_PREFIX
 from .entity import person_device_info
+from .people import HUB_KEY, PeopleHub
 
 PARALLEL_UPDATES = 0
 
@@ -19,8 +19,8 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up one weigh-in button per person."""
-    coordinator: AnkoScaleCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(AnkoWeighInButton(coordinator, p) for p in coordinator.persons)
+    hub = hass.data[HUB_KEY]
+    async_add_entities(AnkoWeighInButton(hub, p) for p in hub.persons)
 
 
 class AnkoWeighInButton(ButtonEntity):
@@ -29,15 +29,13 @@ class AnkoWeighInButton(ButtonEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "weighing_in"
 
-    def __init__(
-        self, coordinator: AnkoScaleCoordinator, profile: PersonProfile
-    ) -> None:
+    def __init__(self, hub: PeopleHub, profile: PersonProfile) -> None:
         """Initialise the button."""
-        self._coordinator = coordinator
+        self._hub = hub
         self._profile_id = profile.profile_id
-        self._attr_unique_id = f"{coordinator.address}_{profile.profile_id}_weighing_in"
-        self._attr_device_info = person_device_info(coordinator.address, profile)
+        self._attr_unique_id = f"{PERSON_UNIQUE_PREFIX}{profile.profile_id}_weighing_in"
+        self._attr_device_info = person_device_info(profile)
 
     async def async_press(self) -> None:
-        """Arm this person for the next weigh-in."""
-        self._coordinator.async_set_next_person(self._profile_id)
+        """Arm this person on every scale that allows them."""
+        self._hub.arm_next(self._profile_id)

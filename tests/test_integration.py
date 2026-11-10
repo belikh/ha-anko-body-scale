@@ -16,9 +16,15 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.anko_scale.const import DOMAIN, EVENT_PENDING, EVENT_WEIGH_IN
+from custom_components.anko_scale.const import (
+    DOMAIN,
+    EVENT_PENDING,
+    EVENT_WEIGH_IN,
+    PEOPLE_UNIQUE_ID,
+)
 from custom_components.anko_scale.coordinator import AnkoScaleCoordinator
 from custom_components.anko_scale.parser import ScaleReading
+from custom_components.anko_scale.people import HUB_KEY, find_people_entry
 
 from .conftest import ADDRESS
 
@@ -40,18 +46,43 @@ BOB = {
 }
 
 
-def _entry(version: int, options: dict) -> MockConfigEntry:
+_PEOPLE_FOR: dict[str, MockConfigEntry] = {}
+
+
+def _people_entry(persons: list[dict], **extra) -> MockConfigEntry:
     return MockConfigEntry(
         domain=DOMAIN,
-        version=version,
-        unique_id=ADDRESS,
-        data={"address": ADDRESS},
-        options=options,
-        title="IF_B7",
+        version=3,
+        unique_id=PEOPLE_UNIQUE_ID,
+        data={"entry_type": "people"},
+        options={"persons": persons, **extra},
+        title="People",
     )
 
 
+def _entry(
+    persons: list[dict],
+    scale_options: dict | None = None,
+    address: str = ADDRESS,
+    **people_extra,
+) -> MockConfigEntry:
+    """Return a scale entry; _setup adds the matching People entry first."""
+    scale = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
+        unique_id=address,
+        data={"address": address},
+        options=scale_options or {},
+        title="IF_B7",
+    )
+    _PEOPLE_FOR[scale.entry_id] = _people_entry(persons, **people_extra)
+    return scale
+
+
 async def _setup(hass: HomeAssistant, entry: MockConfigEntry) -> AnkoScaleCoordinator:
+    people = _PEOPLE_FOR.pop(entry.entry_id, None)
+    if people is not None:
+        people.add_to_hass(hass)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -64,67 +95,35 @@ def _weigh(coordinator: AnkoScaleCoordinator, weight: float, t0: float = 100.0) 
         coordinator.async_handle_reading(ScaleReading(weight, 195, True), t0 + i)
 
 
-async def test_migration_v1_to_v2_keeps_entities(
-    hass: HomeAssistant, mock_bluetooth: None
-) -> None:
-    entry = _entry(1, {"height_cm": 175, "age": 41, "sex": "male"})
-    entry.add_to_hass(hass)
-    registry = er.async_get(hass)
-    old = registry.async_get_or_create(
-        "sensor",
-        DOMAIN,
-        f"{ADDRESS}_weight",
-        config_entry=entry,
-        suggested_object_id="anko_body_scale_weight",
-    )
-
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    assert entry.version == 2
-    assert entry.data == {"address": ADDRESS}
-    assert entry.unique_id == ADDRESS
-    persons = entry.options["persons"]
-    assert persons == [
-        {
-            "profile_id": "legacy",
-            "display_name": "Person 1",
-            "height_cm": 175,
-            "age": 41,
-            "sex": "male",
-        }
-    ]
-    assert registry.async_get("sensor.anko_body_scale_weight") is not None
-    assert registry.async_get("sensor.anko_body_scale_weight").id == old.id
-    assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_weight")
-
-
 async def test_two_persons_create_devices_and_entities(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     await _setup(hass, entry)
+    people = find_people_entry(hass)
 
     devices = dr.async_get(hass)
     scale = devices.async_get_device_by_identifier((DOMAIN, ADDRESS), entry.entry_id)
     alice = devices.async_get_device_by_identifier(
-        (DOMAIN, f"{ADDRESS}:alice"), entry.entry_id
+        (DOMAIN, "person:alice"), people.entry_id
     )
     bob = devices.async_get_device_by_identifier(
-        (DOMAIN, f"{ADDRESS}:bob"), entry.entry_id
+        (DOMAIN, "person:bob"), people.entry_id
     )
     assert scale and alice and bob
-    assert alice.via_device_id == scale.id
-    assert bob.via_device_id == scale.id
 
     registry = er.async_get(hass)
-    unique_ids = [
+    scale_ids = {
         e.unique_id for e in er.async_entries_for_config_entry(registry, entry.entry_id)
-    ]
-    assert len(unique_ids) == len(set(unique_ids))
-    assert f"{ADDRESS}_weight" in unique_ids
-    assert f"{ADDRESS}_alice_weight" in unique_ids
-    assert f"{ADDRESS}_bob_weight" in unique_ids
+    }
+    people_ids = {
+        e.unique_id
+        for e in er.async_entries_for_config_entry(registry, people.entry_id)
+    }
+    assert f"{ADDRESS}_weight" in scale_ids
+    assert "person_alice_weight" in people_ids
+    assert "person_bob_weight" in people_ids
+    assert not any("alice" in uid for uid in scale_ids)
     assert hass.states.get("sensor.alice_weight") is not None
     assert hass.states.get("sensor.anko_body_scale_weight") is not None
 
@@ -132,7 +131,7 @@ async def test_two_persons_create_devices_and_entities(
 async def test_weigh_in_single_event_and_person_sensors(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     events = []
     hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
@@ -156,7 +155,7 @@ async def test_weigh_in_single_event_and_person_sensors(
 async def test_unstable_frames_never_publish(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     events = []
     hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
@@ -171,7 +170,7 @@ async def test_unstable_frames_never_publish(
 async def test_single_final_frame_published_after_timeout(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     events = []
     hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
@@ -190,7 +189,7 @@ async def test_ambiguous_creates_pending_then_assign(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
     close = {**BOB, "expected_weight_kg": 61.0}
-    entry = _entry(2, {"persons": [ALICE, close]})
+    entry = _entry([ALICE, close])
     coordinator = await _setup(hass, entry)
     weigh_ins, pendings = [], []
     hass.bus.async_listen(EVENT_WEIGH_IN, weigh_ins.append)
@@ -220,7 +219,7 @@ async def test_ambiguous_creates_pending_then_assign(
 async def test_discard_creates_no_profile(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     _weigh(coordinator, 120.0)
     assert len(coordinator.pending) == 1
@@ -237,7 +236,7 @@ async def test_discard_creates_no_profile(
 async def test_set_next_person_is_one_shot(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     events = []
     hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
@@ -258,7 +257,7 @@ async def test_not_home_person_not_auto_assigned(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
     alice = {**ALICE, "person_entity": "person.alice"}
-    entry = _entry(2, {"persons": [alice, BOB]})
+    entry = _entry([alice, BOB])
     coordinator = await _setup(hass, entry)
     hass.states.async_set("person.alice", "not_home")
 
@@ -270,19 +269,20 @@ async def test_not_home_person_not_auto_assigned(
 async def test_reassign_restores_previous_owner(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     _weigh(coordinator, 60.0)
     _weigh(coordinator, 85.0, t0=200.0)
     await hass.services.async_call(
         DOMAIN, "reassign_measurement", {"person_id": "alice"}, blocking=True
     )
-    assert coordinator.person_states["alice"].weight_kg == 85.0
-    assert coordinator.person_states["bob"].weight_kg is None
+    hub = hass.data[HUB_KEY]
+    assert hub.person_states["alice"].weight_kg == 85.0
+    assert hub.person_states["bob"].weight_kg is None
 
 
 async def test_unknown_person_raises(hass: HomeAssistant, mock_bluetooth: None) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     await _setup(hass, entry)
     with pytest.raises(ServiceValidationError):
         await hass.services.async_call(
@@ -291,38 +291,39 @@ async def test_unknown_person_raises(hass: HomeAssistant, mock_bluetooth: None) 
 
 
 async def test_state_survives_reload(hass: HomeAssistant, mock_bluetooth: None) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     _weigh(coordinator, 62.0)
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
-    reloaded = hass.data[DOMAIN][entry.entry_id]
-    assert reloaded is not coordinator
-    assert len(reloaded.history["alice"]) == 2  # seed + the weigh-in
-    assert reloaded.last_measured["alice"] is not None
+    assert hass.data[DOMAIN][entry.entry_id] is not coordinator
+    hub = hass.data[HUB_KEY]
+    assert len(hub.history["alice"]) == 2  # seed + the weigh-in
+    assert hub.last_measured["alice"] is not None
 
 
 async def test_deleted_person_device_removed(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     await _setup(hass, entry)
-    hass.config_entries.async_update_entry(entry, options={"persons": [ALICE]})
+    people = find_people_entry(hass)
+    hass.config_entries.async_update_entry(people, options={"persons": [ALICE]})
     await hass.async_block_till_done()
     devices = dr.async_get(hass)
     assert (
-        devices.async_get_device_by_identifier(
-            (DOMAIN, f"{ADDRESS}:bob"), entry.entry_id
-        )
+        devices.async_get_device_by_identifier((DOMAIN, "person:bob"), people.entry_id)
         is None
     )
     assert (
         devices.async_get_device_by_identifier(
-            (DOMAIN, f"{ADDRESS}:alice"), entry.entry_id
+            (DOMAIN, "person:alice"), people.entry_id
         )
         is not None
     )
     assert hass.states.get("sensor.bob_weight") is None
+    # The scale reloaded against the new hub and still works.
+    assert hass.data[DOMAIN][entry.entry_id].hub is hass.data[HUB_KEY]
 
 
 async def test_diagnostics_redacts(hass: HomeAssistant, mock_bluetooth: None) -> None:
@@ -330,8 +331,7 @@ async def test_diagnostics_redacts(hass: HomeAssistant, mock_bluetooth: None) ->
         async_get_config_entry_diagnostics,
     )
 
-    alice = {**ALICE, "notify_service": "notify.mobile_app_alices_phone"}
-    entry = _entry(2, {"persons": [alice, BOB]})
+    entry = _entry([ALICE, BOB], notify_service="notify.mobile_app_alices_phone")
     coordinator = await _setup(hass, entry)
     coordinator.last_raw_hex = f"0000:{ADDRESS.replace(':', '').lower()}0102"
     _weigh(coordinator, 61.0)
@@ -342,15 +342,24 @@ async def test_diagnostics_redacts(hass: HomeAssistant, mock_bluetooth: None) ->
     assert "alice" not in text.lower()
     assert "bob" not in text.lower()
     assert "alices_phone" not in text
-    assert [p["index"] for p in diag["persons"]] == [0, 1]
-    assert "history" not in text.replace("history_length", "")
     assert diag["counts"]["weigh_ins"] == 1
+    assert diag["people_on_scale"] == "all"
+
+    people_diag = await async_get_config_entry_diagnostics(
+        hass, find_people_entry(hass)
+    )
+    people_text = str(people_diag)
+    assert "alice" not in people_text.lower()
+    assert "bob" not in people_text.lower()
+    assert "alices_phone" not in people_text
+    assert [p["index"] for p in people_diag["persons"]] == [0, 1]
+    assert "history" not in people_text.replace("history_length", "")
 
 
 async def test_fake_advert_stream_yields_one_weigh_in(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     events = []
     hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
@@ -384,7 +393,7 @@ async def test_diagnostics_lists_recent_frames_redacted(
         async_get_config_entry_diagnostics,
     )
 
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     addr = bytes.fromhex(ADDRESS.replace(":", ""))
     payload = (
@@ -409,7 +418,7 @@ async def test_unknown_weight_raises_repair_and_flow_adds_person(
 
     from custom_components.anko_scale.repairs import async_create_fix_flow
 
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     _weigh(coordinator, 120.0)
 
@@ -438,7 +447,7 @@ async def test_unknown_weight_raises_repair_and_flow_adds_person(
     )
     assert done["type"] == "create_entry"
     await hass.async_block_till_done()
-    assert [p["profile_id"] for p in entry.options["persons"]] == [
+    assert [p["profile_id"] for p in find_people_entry(hass).options["persons"]] == [
         "alice",
         "bob",
         "guest_two",
@@ -452,7 +461,7 @@ async def test_ambiguous_reading_raises_no_repair(
     from homeassistant.helpers import issue_registry as ir
 
     close = {**BOB, "expected_weight_kg": 61.0}
-    entry = _entry(2, {"persons": [ALICE, close]})
+    entry = _entry([ALICE, close])
     coordinator = await _setup(hass, entry)
     _weigh(coordinator, 60.5)
     assert coordinator.pending[0].reason == "ambiguous"
@@ -464,7 +473,7 @@ async def test_single_person_bypass_raises_no_repair(
 ) -> None:
     from homeassistant.helpers import issue_registry as ir
 
-    entry = _entry(2, {"persons": [ALICE]})
+    entry = _entry([ALICE])
     coordinator = await _setup(hass, entry)
     _weigh(coordinator, 120.0)
     assert coordinator.pending == []
@@ -474,11 +483,11 @@ async def test_single_person_bypass_raises_no_repair(
 async def test_capture_returns_weight_without_assigning(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     events = []
     hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
-    history_before = list(coordinator.history["alice"])
+    history_before = list(hass.data[HUB_KEY].history["alice"])
 
     task = hass.async_create_task(
         hass.services.async_call(
@@ -499,7 +508,7 @@ async def test_capture_returns_weight_without_assigning(
 
     assert result["weight_kg"] == 61.0
     assert events == []
-    assert coordinator.history["alice"] == history_before
+    assert hass.data[HUB_KEY].history["alice"] == history_before
     assert coordinator.pending == []
 
     _weigh(coordinator, 61.0, t0=200.0)  # capture is one-shot
@@ -510,7 +519,7 @@ async def test_capture_returns_weight_without_assigning(
 async def test_capture_times_out_cleanly(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     with pytest.raises(ServiceValidationError):
         await coordinator.async_capture_measurement(0)
@@ -521,7 +530,7 @@ async def test_capture_times_out_cleanly(
 async def test_no_foot_contact_weigh_in_uses_bmi_route(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     events = []
     hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
@@ -539,7 +548,7 @@ async def test_no_foot_contact_weigh_in_uses_bmi_route(
 async def test_contact_weigh_in_uses_assumed_bia_route(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     coordinator = await _setup(hass, entry)
     _weigh(coordinator, 61.0)  # raw code 195 -> assumed 499 ohm
     await hass.async_block_till_done()
@@ -550,7 +559,8 @@ async def test_contact_weigh_in_uses_assumed_bia_route(
 async def test_scale_body_sensors_are_removed(
     hass: HomeAssistant, mock_bluetooth: None
 ) -> None:
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
+    _PEOPLE_FOR.pop(entry.entry_id).add_to_hass(hass)
     entry.add_to_hass(hass)
     registry = er.async_get(hass)
     for key in ("bmi", "body_fat_percent", "bmr"):
@@ -568,8 +578,8 @@ async def test_scale_body_sensors_are_removed(
     # The scale keeps weight, raw impedance, last person and pending count.
     for key in ("weight", "impedance", "last_person", "pending_count"):
         assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_{key}")
-    # Person sensors are untouched.
-    assert registry.async_get_entity_id("sensor", DOMAIN, f"{ADDRESS}_alice_bmi")
+    # Person sensors belong to the People entry.
+    assert registry.async_get_entity_id("sensor", DOMAIN, "person_alice_bmi")
 
 
 async def test_destructive_services_require_admin(
@@ -580,7 +590,7 @@ async def test_destructive_services_require_admin(
 
     from custom_components.anko_scale import SERVICE_DISCARD, SERVICE_RESET_HISTORY
 
-    entry = _entry(2, {"persons": [ALICE, BOB]})
+    entry = _entry([ALICE, BOB])
     await _setup(hass, entry)
     await hass.auth.async_create_user("owner", group_ids=["system-admin"])
     user = await hass.auth.async_create_user("viewer", group_ids=["system-users"])
@@ -593,3 +603,220 @@ async def test_destructive_services_require_admin(
             await hass.services.async_call(
                 DOMAIN, service, data, blocking=True, context=Context(user_id=user.id)
             )
+
+
+SECOND = "11:22:33:44:55:66"
+
+
+async def _add_scale(
+    hass: HomeAssistant, address: str = SECOND, options: dict | None = None
+) -> AnkoScaleCoordinator:
+    scale = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
+        unique_id=address,
+        data={"address": address},
+        options=options or {},
+        title="IF_B7",
+    )
+    scale.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(scale.entry_id)
+    await hass.async_block_till_done()
+    return hass.data[DOMAIN][scale.entry_id]
+
+
+async def test_two_scales_update_the_same_person(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    first = await _setup(hass, _entry([ALICE, BOB]))
+    second = await _add_scale(hass)
+    hub = hass.data[HUB_KEY]
+    assert first.hub is hub and second.hub is hub
+
+    _weigh(first, 61.0)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.alice_weight").state == "61.0"
+
+    # The same person on the other scale updates the same sensor and history.
+    _weigh(second, 62.0, t0=200.0)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.alice_weight").state == "62.0"
+    assert len(hub.history["alice"]) == 3  # seed + one reading per scale
+
+    _weigh(second, 85.0, t0=300.0)
+    await hass.async_block_till_done()
+    assert first.last_person == "Alice"
+    assert second.last_person == "Bob"
+    assert hass.states.get("sensor.alice_weight").state == "62.0"
+    assert hass.states.get("sensor.bob_weight").state == "85.0"
+
+
+async def test_scale_allowlist_limits_attribution(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    await _setup(hass, _entry([ALICE, BOB]))
+    bob_only = await _add_scale(hass, options={"people": ["bob"]})
+    events = []
+    hass.bus.async_listen(EVENT_WEIGH_IN, events.append)
+
+    assert [p.profile_id for p in bob_only.persons] == ["bob"]
+    # 61 kg is Alice's weight, but Alice is not allowed on this scale.
+    _weigh(bob_only, 61.0)
+    await hass.async_block_till_done()
+    assert events[-1].data["person_id"] == "bob"
+    assert events[-1].data["source"] == "single_person"
+    assert bob_only.pending == []
+
+
+async def test_new_person_joins_scales_without_a_list(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    all_scale = await _setup(hass, _entry([ALICE]))
+    listed = await _add_scale(hass, options={"people": ["alice"]})
+    people = find_people_entry(hass)
+    hass.config_entries.async_update_entry(people, options={"persons": [ALICE, BOB]})
+    await hass.async_block_till_done()
+
+    scales = hass.data[DOMAIN]
+    assert [p.profile_id for p in scales[all_scale.entry.entry_id].persons] == [
+        "alice",
+        "bob",
+    ]
+    assert [p.profile_id for p in scales[listed.entry.entry_id].persons] == ["alice"]
+
+
+async def test_weighing_in_button_arms_scales_that_allow_the_person(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    everyone = await _setup(hass, _entry([ALICE, BOB]))
+    bob_only = await _add_scale(hass, options={"people": ["bob"]})
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.alice_weighing_in"}, blocking=True
+    )
+    assert everyone.next_person == "alice"
+    assert bob_only.next_person is None
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.bob_weighing_in"}, blocking=True
+    )
+    assert everyone.next_person == "bob"
+    assert bob_only.next_person == "bob"
+
+
+async def test_button_fails_when_no_scale_allows_the_person(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    entry = _entry([ALICE, BOB], {"people": ["bob"]})
+    await _setup(hass, entry)
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            "button", "press", {"entity_id": "button.alice_weighing_in"}, blocking=True
+        )
+
+
+async def test_people_services_need_no_entry_id_with_two_scales(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    first = await _setup(hass, _entry([ALICE, BOB]))
+    await _add_scale(hass)
+    hub = hass.data[HUB_KEY]
+    _weigh(first, 61.0)
+    _weigh(first, 85.0, t0=200.0)
+
+    await hass.services.async_call(
+        DOMAIN, "reassign_measurement", {"person_id": "alice"}, blocking=True
+    )
+    assert hub.person_states["alice"].weight_kg == 85.0
+    await hass.services.async_call(
+        DOMAIN, "reset_person_history", {"person_id": "alice"}, blocking=True
+    )
+    assert hub.history["alice"] == [60.0]
+
+    # Scale actions still need to know which scale.
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN, "set_next_person", {"person_id": "bob"}, blocking=True
+        )
+    await hass.services.async_call(
+        DOMAIN,
+        "set_next_person",
+        {"person_id": "bob", "config_entry_id": first.entry.entry_id},
+        blocking=True,
+    )
+    assert first.next_person == "bob"
+
+
+async def test_scale_without_people_entry_waits(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    scale = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
+        unique_id=ADDRESS,
+        data={"address": ADDRESS},
+        options={},
+    )
+    scale.add_to_hass(hass)
+    assert not await hass.config_entries.async_setup(scale.entry_id)
+    assert scale.state.value == "setup_retry"
+
+
+async def test_people_reload_rebinds_scales(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    coordinator = await _setup(hass, _entry([ALICE, BOB]))
+    people = find_people_entry(hass)
+    old_hub = hass.data[HUB_KEY]
+
+    assert await hass.config_entries.async_reload(people.entry_id)
+    await hass.async_block_till_done()
+
+    new_hub = hass.data[HUB_KEY]
+    assert new_hub is not old_hub
+    scale = hass.data[DOMAIN][coordinator.entry.entry_id]
+    assert scale.hub is new_hub
+    _weigh(scale, 61.0)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.alice_weight").state == "61.0"
+
+
+async def test_new_person_after_migration_style_scale_is_matched(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    """A scale with no list picks up people added later."""
+    coordinator = await _setup(hass, _entry([ALICE]))
+    people = find_people_entry(hass)
+    hass.config_entries.async_update_entry(people, options={"persons": [ALICE, BOB]})
+    await hass.async_block_till_done()
+    scale = hass.data[DOMAIN][coordinator.entry.entry_id]
+    _weigh(scale, 85.0)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.bob_weight").state == "85.0"
+
+
+async def test_repair_adds_person_to_an_explicit_scale_list(
+    hass: HomeAssistant, mock_bluetooth: None
+) -> None:
+    from homeassistant.helpers import issue_registry as ir
+
+    from custom_components.anko_scale.repairs import async_create_fix_flow
+
+    entry = _entry([ALICE, BOB], {"people": ["alice", "bob"]})
+    coordinator = await _setup(hass, entry)
+    _weigh(coordinator, 120.0)
+    pending = coordinator.pending[0]
+    issue_id = f"unknown_weight_{pending.pending_id}"
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+
+    flow = await async_create_fix_flow(hass, issue_id, issue.data)
+    flow.hass = hass
+    done = await flow.async_step_person(
+        {"display_name": "Guest Two", "height_cm": 175, "sex": "male", "age": 40}
+    )
+    assert done["type"] == "create_entry"
+    await hass.async_block_till_done()
+
+    assert entry.options == {"people": ["alice", "bob", "guest_two"]}
+    scale = hass.data[DOMAIN][entry.entry_id]
+    assert [p.profile_id for p in scale.persons] == ["alice", "bob", "guest_two"]

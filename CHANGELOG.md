@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.0
+
+### Added
+
+*   **People shared across scales.** People, weight history and attribution
+    settings move to a new **ANKO Body Scale people** config entry. A person
+    weighed on any scale updates the same sensors.
+*   **Per-scale people.** Each scale has a list of the people who use it.
+    Everyone by default, a subset, or one person (no matching). Set it when
+    adding a scale or under Configure on the scale.
+*   **Add from a Home Assistant person.** The People entry's Configure menu
+    can start a profile from a `person` entity: the name is pre-filled and the
+    entity is linked, so the person is skipped while `not_home`.
+
+### Changed
+
+*   **Person entities and devices belong to the People entry.** Unique IDs
+    change to `person_<person>_<key>` and person devices are no longer linked
+    to a scale device. Entity IDs, history and devices are preserved by an
+    automatic migration of v1 and v2 entries (see README).
+*   **`reassign_measurement` and `reset_person_history`** no longer take
+    `config_entry_id`.
+*   **`weigh_in` event** `entry_id` is still the scale's entry ID.
+*   **Pending measurements** stay per scale. The weighing-in button arms every
+    scale that allows the person.
+
 ## 1.3.1
 
 ### Changed

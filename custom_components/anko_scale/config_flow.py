@@ -11,6 +11,7 @@ from homeassistant.components.bluetooth import (
     async_discovered_service_info,
 )
 from homeassistant.config_entries import (
+    SOURCE_IMPORT,
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
@@ -26,12 +27,14 @@ from .const import (
     CONF_AGE,
     CONF_BIRTH_DATE,
     CONF_DISPLAY_NAME,
+    CONF_ENTRY_TYPE,
     CONF_EXPECTED_WEIGHT,
     CONF_HEIGHT_CM,
     CONF_HISTORY_SIZE,
     CONF_MARGIN_KG,
     CONF_NOTIFY_SERVICE,
     CONF_PENDING_TIMEOUT,
+    CONF_PEOPLE,
     CONF_PERSON_ENTITY,
     CONF_PERSONS,
     CONF_PROFILE_ID,
@@ -42,15 +45,19 @@ from .const import (
     DEFAULT_HISTORY_SIZE,
     DEFAULT_MARGIN_KG,
     DEFAULT_PENDING_TIMEOUT_MIN,
+    DEFAULT_PERSON_NAME,
     DEFAULT_SEX,
     DEFAULT_TOLERANCE_KG,
     DEFAULT_TOLERANCE_PCT,
     DOMAIN,
-    LEGACY_DISPLAY_NAME,
+    ENTRY_TYPE_PEOPLE,
+    PEOPLE_TITLE,
+    PEOPLE_UNIQUE_ID,
     SEX_FEMALE,
     SEX_MALE,
 )
 from .parser import LOCAL_NAME
+from .people import find_people_entry, is_people_entry
 
 _OPTIONAL_PERSON_KEYS = (
     CONF_BIRTH_DATE,
@@ -170,15 +177,32 @@ def default_settings() -> dict[str, Any]:
     }
 
 
+def people_options(entry: ConfigEntry | None) -> list[dict[str, Any]]:
+    """Return the people stored in the People entry."""
+    if entry is None:
+        return []
+    return [dict(p) for p in entry.options.get(CONF_PERSONS, [])]
+
+
 class AnkoScaleConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for the ANKO Body Scale."""
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialise the config flow."""
         self._address: str | None = None
         self._title: str = "ANKO Body Scale"
+
+    async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
+        """Create the People entry (used by the first-scale flow and upgrades)."""
+        await self.async_set_unique_id(PEOPLE_UNIQUE_ID)
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=PEOPLE_TITLE,
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_PEOPLE},
+            options=import_data,
+        )
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -194,9 +218,9 @@ class AnkoScaleConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Ask before adding a discovered scale, so a neighbour's scale is not added silently."""
+        """Ask before adding a discovered scale (it may be a neighbour's)."""
         if user_input is not None:
-            return await self.async_step_profile()
+            return await self._async_after_scale_chosen()
         self._set_confirm_only()
         return self.async_show_form(
             step_id="bluetooth_confirm",
@@ -211,7 +235,7 @@ class AnkoScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             self._address = user_input[CONF_ADDRESS]
             await self.async_set_unique_id(self._address)
             self._abort_if_unique_id_configured()
-            return await self.async_step_profile()
+            return await self._async_after_scale_chosen()
 
         current_addresses = self._async_current_ids()
         discovered = {
@@ -227,6 +251,42 @@ class AnkoScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required(CONF_ADDRESS): vol.In(discovered)}),
         )
 
+    async def _async_after_scale_chosen(self) -> ConfigFlowResult:
+        """Ask for the first person, or who uses this scale if people exist."""
+        persons = people_options(find_people_entry(self.hass))
+        if not persons:
+            return await self.async_step_profile()
+        if len(persons) > 1:
+            return await self.async_step_people()
+        return self._create_scale_entry(None)
+
+    def _create_scale_entry(self, allowed: list[str] | None) -> ConfigFlowResult:
+        options = {} if allowed is None else {CONF_PEOPLE: allowed}
+        return self.async_create_entry(
+            title=self._title, data={CONF_ADDRESS: self._address}, options=options
+        )
+
+    async def async_step_people(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose which people use this scale (everyone by default)."""
+        persons = people_options(find_people_entry(self.hass))
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            chosen = list(user_input[CONF_PEOPLE])
+            all_ids = [p[CONF_PROFILE_ID] for p in persons]
+            if not chosen:
+                errors[CONF_PEOPLE] = "people_required"
+            else:
+                return self._create_scale_entry(
+                    None if set(chosen) == set(all_ids) else chosen
+                )
+        return self.async_show_form(
+            step_id="people",
+            data_schema=people_schema(persons, None),
+            errors=errors,
+        )
+
     async def async_step_profile(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -237,33 +297,96 @@ class AnkoScaleConfigFlow(ConfigFlow, domain=DOMAIN):
             errors = validate_person(person, [])
             if not errors:
                 person[CONF_PROFILE_ID] = new_profile_id(person[CONF_DISPLAY_NAME], [])
-                return self.async_create_entry(
-                    title=self._title,
-                    data={CONF_ADDRESS: self._address},
-                    options={CONF_PERSONS: [person], **default_settings()},
+                await self.hass.config_entries.flow.async_init(
+                    DOMAIN,
+                    context={"source": SOURCE_IMPORT},
+                    data={CONF_PERSONS: [person], **default_settings()},
                 )
+                return self._create_scale_entry(None)
 
         return self.async_show_form(
             step_id="profile",
             data_schema=person_schema(
-                user_input or {CONF_DISPLAY_NAME: LEGACY_DISPLAY_NAME}
+                user_input or {CONF_DISPLAY_NAME: DEFAULT_PERSON_NAME}
             ),
             errors=errors,
         )
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> AnkoScaleOptionsFlow:
-        """Return the options flow for this integration."""
+    def async_get_options_flow(
+        config_entry: ConfigEntry,
+    ) -> AnkoPeopleOptionsFlow | AnkoScaleOptionsFlow:
+        """Return the People options flow or the per-scale one."""
+        if is_people_entry(config_entry):
+            return AnkoPeopleOptionsFlow()
         return AnkoScaleOptionsFlow()
 
 
+def people_schema(
+    persons: list[dict[str, Any]], selected: list[str] | None
+) -> vol.Schema:
+    """Return the form that picks which people use a scale."""
+    options = [
+        selector.SelectOptionDict(value=p[CONF_PROFILE_ID], label=p[CONF_DISPLAY_NAME])
+        for p in persons
+    ]
+    default = (
+        [p[CONF_PROFILE_ID] for p in persons] if selected is None else list(selected)
+    )
+    return vol.Schema(
+        {
+            vol.Required(CONF_PEOPLE, default=default): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=options, multiple=True)
+            )
+        }
+    )
+
+
 class AnkoScaleOptionsFlow(OptionsFlow):
+    """Choose which people use this scale."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Start the only step (options flows must begin at init)."""
+        return await self.async_step_scale_people()
+
+    async def async_step_scale_people(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pick the people; selecting everyone stores no list."""
+        persons = people_options(find_people_entry(self.hass))
+        all_ids = [p[CONF_PROFILE_ID] for p in persons]
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            chosen = [pid for pid in user_input[CONF_PEOPLE] if pid in all_ids]
+            if not chosen:
+                errors[CONF_PEOPLE] = "people_required"
+            else:
+                options = {
+                    k: v
+                    for k, v in self.config_entry.options.items()
+                    if k != CONF_PEOPLE
+                }
+                if set(chosen) != set(all_ids):
+                    options[CONF_PEOPLE] = chosen
+                return self.async_create_entry(data=options)
+        current = self.config_entry.options.get(CONF_PEOPLE)
+        return self.async_show_form(
+            step_id="scale_people",
+            data_schema=people_schema(persons, current),
+            errors=errors,
+        )
+
+
+class AnkoPeopleOptionsFlow(OptionsFlow):
     """Add, edit and delete people; tune attribution."""
 
     def __init__(self) -> None:
         """Initialise the options flow."""
         self._edit_id: str | None = None
+        self._prefill: dict[str, Any] = {}
 
     @property
     def _persons(self) -> list[dict[str, Any]]:
@@ -277,7 +400,7 @@ class AnkoScaleOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Show the options menu."""
-        menu = ["add_person", "edit_person"]
+        menu = ["add_person", "add_from_person", "edit_person"]
         if len(self._persons) > 1:
             menu.append("delete_person")
         menu.append("settings")
@@ -299,8 +422,29 @@ class AnkoScaleOptionsFlow(OptionsFlow):
                 return self._save([*persons, person])
         return self.async_show_form(
             step_id="add_person",
-            data_schema=person_schema(user_input),
+            data_schema=person_schema(user_input or self._prefill or None),
             errors=errors,
+        )
+
+    async def async_step_add_from_person(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Start a new profile from a Home Assistant person."""
+        if user_input is not None:
+            entity_id = user_input[CONF_PERSON_ENTITY]
+            state = self.hass.states.get(entity_id)
+            name = (state.name if state else "") or entity_id.split(".", 1)[-1]
+            self._prefill = {CONF_DISPLAY_NAME: name, CONF_PERSON_ENTITY: entity_id}
+            return await self.async_step_add_person()
+        return self.async_show_form(
+            step_id="add_from_person",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_PERSON_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="person")
+                    )
+                }
+            ),
         )
 
     async def async_step_edit_person(
@@ -349,12 +493,29 @@ class AnkoScaleOptionsFlow(OptionsFlow):
                 p for p in persons if p[CONF_PROFILE_ID] != user_input[CONF_PROFILE_ID]
             ]
             if remaining:
+                self._drop_from_scales(user_input[CONF_PROFILE_ID])
                 return self._save(remaining)
         choices = {p[CONF_PROFILE_ID]: p[CONF_DISPLAY_NAME] for p in persons}
         return self.async_show_form(
             step_id="delete_person",
             data_schema=vol.Schema({vol.Required(CONF_PROFILE_ID): vol.In(choices)}),
         )
+
+    def _drop_from_scales(self, profile_id: str) -> None:
+        """Remove a deleted person from every scale's explicit people list."""
+        for scale in self.hass.config_entries.async_entries(DOMAIN):
+            allowed = scale.options.get(CONF_PEOPLE)
+            if is_people_entry(scale) or allowed is None or profile_id not in allowed:
+                continue
+            # An empty list stays empty: readings wait as pending until
+            # someone is chosen, instead of going to everyone.
+            self.hass.config_entries.async_update_entry(
+                scale,
+                options={
+                    **scale.options,
+                    CONF_PEOPLE: [pid for pid in allowed if pid != profile_id],
+                },
+            )
 
     async def async_step_settings(
         self, user_input: dict[str, Any] | None = None

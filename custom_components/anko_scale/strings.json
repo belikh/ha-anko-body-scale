@@ -13,7 +13,7 @@
       },
       "profile": {
         "title": "First person",
-        "description": "Enter the details of a person who uses this scale. More people can be added later with Configure. Give a birth date or an age. Details drive the body-composition calculations.",
+        "description": "Enter the first person. People are shared by all scales; add more later in the People entry's Configure. Give a birth date or an age. Details drive the body-composition calculations.",
         "data": {
           "display_name": "Name",
           "height_cm": "Height (cm)",
@@ -23,13 +23,21 @@
           "person_entity": "Person entity (optional, skips this person when not home)",
           "expected_weight_kg": "Starting weight in kg (optional, helps recognise this person)"
         }
+      },
+      "people": {
+        "title": "Who uses this scale?",
+        "description": "Readings on this scale are assigned only to the people selected. Select everyone to include people added later.",
+        "data": {
+          "people": "People"
+        }
       }
     },
     "error": {
       "name_required": "Enter a name.",
       "name_exists": "Another person already has this name.",
       "invalid_birth_date": "Enter a past date as YYYY-MM-DD, for example 1985-03-27.",
-      "birth_date_or_age": "Enter a birth date or an age."
+      "birth_date_or_age": "Enter a birth date or an age.",
+      "people_required": "Select at least one person."
     },
     "abort": {
       "no_devices_found": "No ANKO body scales were found on the network.",
@@ -42,6 +50,7 @@
         "title": "People and settings",
         "menu_options": {
           "add_person": "Add a person",
+          "add_from_person": "Add from a Home Assistant person",
           "edit_person": "Edit a person",
           "delete_person": "Delete a person",
           "settings": "Attribution settings"
@@ -95,13 +104,28 @@
           "pending_timeout_min": "Pending timeout (minutes)",
           "notify_service": "Notify action for pending readings (for example notify.mobile_app_phone)"
         }
+      },
+      "add_from_person": {
+        "title": "Home Assistant person",
+        "description": "The new profile uses this person's name and skips them when they are not home.",
+        "data": {
+          "person_entity": "Person"
+        }
+      },
+      "scale_people": {
+        "title": "Who uses this scale?",
+        "description": "Readings on this scale are assigned only to the people selected. Select everyone to include people added later.",
+        "data": {
+          "people": "People"
+        }
       }
     },
     "error": {
       "name_required": "Enter a name.",
       "name_exists": "Another person already has this name.",
       "invalid_birth_date": "Enter a past date as YYYY-MM-DD, for example 1985-03-27.",
-      "birth_date_or_age": "Enter a birth date or an age."
+      "birth_date_or_age": "Enter a birth date or an age.",
+      "people_required": "Select at least one person."
     }
   },
   "selector": {
@@ -219,10 +243,6 @@
         "person_id": {
           "name": "Person ID",
           "description": "The person who should own the measurement."
-        },
-        "config_entry_id": {
-          "name": "Scale",
-          "description": "Needed only when more than one scale is configured."
         }
       }
     },
@@ -247,10 +267,6 @@
         "person_id": {
           "name": "Person ID",
           "description": "The person to reset."
-        },
-        "config_entry_id": {
-          "name": "Scale",
-          "description": "Needed only when more than one scale is configured."
         }
       }
     },
@@ -271,7 +287,7 @@
   },
   "exceptions": {
     "unknown_person": {
-      "message": "No person with ID {person} on this scale."
+      "message": "No person with ID {person}."
     },
     "unknown_pending": {
       "message": "No pending measurement with ID {pending_id}. It may have expired."
@@ -290,6 +306,18 @@
     },
     "capture_in_progress": {
       "message": "Another capture is already waiting for a weigh-in."
+    },
+    "people_unavailable": {
+      "message": "The ANKO people entry is not loaded."
+    },
+    "no_scale_for_person": {
+      "message": "No loaded scale allows this person."
+    },
+    "people_missing": {
+      "message": "The ANKO people entry is missing. Remove this scale and add it again to recreate it."
+    },
+    "people_adopting": {
+      "message": "Waiting for the ANKO people entry to take over this scale's people."
     }
   },
   "issues": {
