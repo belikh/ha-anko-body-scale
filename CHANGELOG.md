@@ -1,13 +1,5 @@
 # Changelog
 
-## 1.3.0-rc.3
-
-### Fixed
-
-*   **Diagnostics leaked person names.** `profile_id` (a slug of the display
-    name) and `notify_service` are now redacted in the entry options. The
-    `persons` list reports an `index` instead of the `profile_id`.
-
 ## 1.3.0
 
 ### Added
@@ -42,6 +34,12 @@
     assumed factor of 2.56 for the body-fat equation; those results carry
     `method: bia_assumed`. A weigh-in with no foot contact is recorded with
     BMI-based body fat.
+
+### Fixed
+
+*   **Diagnostics leaked person names.** `profile_id` (a slug of the display
+    name) and `notify_service` are now redacted in the entry options. The
+    `persons` list reports an `index` instead of the `profile_id`.
 
 ## 1.2.1
 
