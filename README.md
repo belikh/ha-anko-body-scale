@@ -1,6 +1,11 @@
-# ANKO Body Scale for Home Assistant
+<p align="right">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/belikh/design/main/packages/graphics/logo/jupiter-logo-dark.svg">
+    <img alt="jupiter.au" src="https://raw.githubusercontent.com/belikh/design/main/packages/graphics/logo/jupiter-logo-light.svg" width="260">
+  </picture>
+</p>
 
-[![Add to Home Assistant](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=belikh&repository=ha-anko-body-scale&category=integration)
+# ANKO Body Scale for Home Assistant
 
 A custom integration for the **ANKO iF1012D Bluetooth body scale** (advertised
 as `IF_B7`) in Home Assistant. ANKO is Kmart Australia's own brand, so this is
@@ -14,6 +19,22 @@ and ideal weight range) from the height / age / sex profile you enter at setup.
 The advertisement layout was reverse engineered from the MovingLife app and
 confirmed against nRF Connect captures (Senssun protocol family).
 
+<p>
+  <a href="#features">Features</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#setup">Setup</a> ·
+  <a href="#how-readings-are-assigned">How readings are assigned</a> ·
+  <a href="#entities">Entities</a> ·
+  <a href="#how-body-composition-is-calculated">How body composition is calculated</a> ·
+  <a href="#actions">Actions</a>
+</p>
+
+<br>
+
+---
+
+<br>
+
 ## Features
 
 - Setup through the UI with Bluetooth discovery.
@@ -26,7 +47,11 @@ confirmed against nRF Connect captures (Senssun protocol family).
 - Ambiguous readings wait as pending measurements, with services, events and optional mobile notifications to resolve them.
 - Redacted diagnostics download.
 
+<br>
+
 ## Installation
+
+[![Add to Home Assistant](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=belikh&repository=ha-anko-body-scale&category=integration)
 
 1. Click the **Add to Home Assistant** button above and choose **Download**,
    or search for **ANKO Body Scale** in the Marketplace or HACS.
@@ -47,6 +72,8 @@ If the search returns nothing, open the Marketplace or HACS, use the three dots
 (top right) → **Custom repositories**, add
 `https://github.com/belikh/ha-anko-body-scale` with category **Integration**, then
 install **ANKO Body Scale** and restart Home Assistant.
+
+<br>
 
 ## Setup
 
@@ -95,6 +122,8 @@ Deleting a person removes them from every scale's list. A scale left with no peo
 
 A person weighed on any scale updates the same sensors and weight history. The **Weighing in** button arms the next reading on every scale that allows the person. Scale actions (`assign_measurement`, `discard_measurement`, `set_next_person`, `capture_measurement`) need `config_entry_id` when more than one scale exists. `reassign_measurement` and `reset_person_history` act on people and never need it.
 
+<br>
+
 ## How readings are assigned
 
 Weight and impedance come from the scale. The scale does not say who is standing on it, so the integration chooses.
@@ -121,6 +150,8 @@ If **Notify action** is set (for example `notify.mobile_app_phone`), the phone g
 ### Unknown weights
 
 When there are two or more people and a weigh-in is outside everyone's tolerance, the integration creates a repair under **Settings → System → Repairs**: "A weigh-in matched nobody". **Fix** opens a form to add that person with the observed weight as their starting weight. Submitting adds the person, reloads the entry and drops the pending weigh-in. The next weigh-in is the first one published for them. Each detection is logged at info level and counted in the diagnostics (`unknown_weights`). With one person configured there are no repairs: that person gets every reading. A weight that is close to two people (ambiguous) creates a pending measurement but no repair.
+
+<br>
 
 ## Entities
 
@@ -153,6 +184,8 @@ Each person device (shared by all scales) has 14 sensors (`sensor.<name>_weight`
 | Visceral fat index | 1 to 30 heuristic |
 | Ideal weight (min), (max) | Healthy range for the height (BMI 18.5 to 24.9), diagnostic |
 
+<br>
+
 ## How body composition is calculated
 
 | Value | Method | Source |
@@ -171,6 +204,8 @@ If a person always gets `bmi`, the assumed impedance is outside that range or th
 
 Foot-to-foot impedance gives an individual body-fat error of roughly ±5 percentage points.
 
+<br>
+
 ## Actions
 
 `assign_measurement`, `discard_measurement`, `set_next_person` and `capture_measurement` take an optional `config_entry_id`, needed only with more than one scale. `reassign_measurement` and `reset_person_history` do not.
@@ -183,6 +218,8 @@ Foot-to-foot impedance gives an individual body-fat error of roughly ±5 percent
 | `anko_scale.capture_measurement` | `timeout` (5 to 300 s, default 60) | Waits for the next settled weigh-in and returns `weight_kg` and `timestamp` as the action response. The reading is not assigned and nothing enters anyone's history. Fails with an error at the timeout. |
 | `anko_scale.set_next_person` | `person_id` (empty clears) | Same as the **Weighing in** button. |
 | `anko_scale.reset_person_history` | `person_id` | Clears the stored weights; the starting weight, if set, is used again. Admin users only. |
+
+<br>
 
 ## Events
 
@@ -231,11 +268,14 @@ entities:
 
 Entity IDs follow the names you choose.
 
-> **Accuracy:** body-composition values from any single-frequency, foot-to-foot
+> [!NOTE]
+> Body-composition values from any single-frequency, foot-to-foot
 > BIA device are estimates (typically within ±3–8 % of a DEXA scan) — the same
 > caveat applies to premium smart scales using the same equations. Weight,
 > impedance and reading stability are direct from the scale; everything else is
 > computed.
+
+<br>
 
 ## Troubleshooting
 
@@ -259,6 +299,8 @@ Entity IDs follow the names you choose.
   restored and marked available until a fresh reading arrives; step on the
   scale to refresh them.
 
+<br>
+
 ## Examples
 
 The `examples/` folder holds copy-and-edit files. None are installed or enabled by default.
@@ -271,9 +313,13 @@ The `examples/` folder holds copy-and-edit files. None are installed or enabled 
 
 The leaderboard reads health data from your own Home Assistant only. Nothing leaves it unless you share the dashboard. The examples use entity IDs for people named Jupiter and Sarah; replace them with yours. Screenshots are not included.
 
+<br>
+
 ## Diagnostics
 
 **Settings → Devices & Services → ANKO Body Scale → Download diagnostics** includes the integration version, options with names, birth dates and the BLE address redacted, per-person history length and last timestamp, advert counts, RSSI, the last raw frame and the last 30 distinct raw adverts. It contains no weight history.
+
+<br>
 
 ## Reporting a problem
 
@@ -295,6 +341,8 @@ logger:
     custom_components.anko_scale: debug
 ```
 
+<br>
+
 ## Known limitations
 
 - **Attribution is by weight.** People within a few kg of each other, such as
@@ -307,14 +355,18 @@ logger:
   cannot trigger a weigh-in or read history; it only sees advertisements
   broadcast while you step on the scale.
 
-## Removing the integration
+<br>
+
+## Remove
 
 Open **Settings → Devices & Services**, open the **ANKO Body Scale**
 entry, click the three dots → **Delete**. This removes the config entry, its
 device and entities. Optionally also remove the integration files (Marketplace/HACS or
 `custom_components/anko_scale`) and restart Home Assistant.
 
-## Development
+<br>
+
+## Develop
 
 Tests run against a pinned Home Assistant version with
 [uv](https://docs.astral.sh/uv/):
@@ -329,6 +381,14 @@ uv run mypy
 `pyproject.toml` carries the dev dependency group (pytest-homeassistant-custom-component,
 ruff, mypy) and `uv.lock` pins the full tree, so the suite is reproducible.
 
+<br>
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
+
+<br>
+
 ## Credits
 
 - **Jupiter Belic** — integration author. The advertisement layout was reverse
@@ -336,8 +396,13 @@ ruff, mypy) and `uv.lock` pins the full tree, so the suite is reproducible.
 - Body-composition equations (see `body_metrics.py`):
   - **Mifflin et al.**, *A new predictive equation for resting energy
     expenditure*, Am J Clin Nutr 1990 (BMR).
-  - **Kyle et al.**, *Bioelectrical impedance analysis*, Clin Nutr 2001
-    (fat-free mass from the resistance index).
+  - **Wu et al.**, Nutr J 2015;14:52 (fat-free mass from foot-to-foot
+    impedance).
+  - **Deurenberg et al.**, Br J Nutr 1991;65:105 (body fat from BMI).
   - **Pace & Rathbun**, J Biol Chem 1945 (total body water ≈ 73 % of fat-free
     mass).
   - **American Council on Exercise** reference ranges for body fat percentage.
+
+<br>
+
+<p align="right"><sub>jupiter.au</sub></p>
