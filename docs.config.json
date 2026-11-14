@@ -1,0 +1,22 @@
+{
+  "project": "ANKO Body Scale",
+  "id": "anko-body-scale",
+  "description": "Home Assistant integration for the ANKO iF1012D Bluetooth body scale: weight and body composition per person, read from passive BLE adverts.",
+  "icon": "pulse",
+  "versionFrom": "custom_components/anko_scale/manifest.json",
+  "repo": "https://github.com/belikh/ha-anko-body-scale",
+  "siteUrl": "https://docs.jupiter.au/anko-body-scale",
+  "author": "belikh",
+  "pdf": "anko-body-scale.pdf",
+  "hero": "spot/body-scale",
+  "glossary": {
+    "Advert": "A Bluetooth Low Energy advertisement. The scale broadcasts adverts while someone stands on it, and Home Assistant reads them without connecting.",
+    "Weigh-in": "One settled reading: 3 stable adverts within 0.5 kg and 5 seconds, or the last stable adverts after 5 seconds of silence.",
+    "Person": "A profile with a name, height, sex and a birth date or age. Each person has one device with 14 sensors and a button.",
+    "Profile ID": "The lowercase slug of a person's name, for example `jupiter`. Actions and events use it as `person_id`.",
+    "People entry": "The config entry named ANKO Body Scale people. It holds every person, their weight history and the attribution settings, and all scales share it.",
+    "Expected weight": "The exponentially weighted average (alpha 0.3) of a person's stored weights. The integration compares each weigh-in with it.",
+    "Pending measurement": "A weigh-in the integration could not assign to one person. It waits on the scale until you assign it, discard it or it times out.",
+    "BIA": "Bioelectrical impedance analysis: an estimate of fat-free mass from the body's resistance to a small current between the feet."
+  }
+}

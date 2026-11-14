@@ -1,0 +1,38 @@
+---
+title: Upgrade to 2.0
+summary: What the first start of version 2.0.0 changes in an existing installation.
+order: 50
+audience: users
+status: draft
+---
+
+Version 2.0.0 migrates an existing installation on its first start. Entity IDs, entity history and person devices stay the same.
+
+## What the migration does
+
+1. It creates the [[term:People entry]], **ANKO Body Scale people**.
+2. It moves each scale's people, weight history and attribution settings into that entry.
+3. It changes the unique IDs of person entities from `<address>_<person>_<key>` to `person_<person>_<key>`.
+
+A scale's own entities, such as `sensor.anko_body_scale_weight`, keep their unique IDs. A profile from version 1.0 becomes **Person 1** with the [[term:Profile ID]] `legacy`.
+
+A scale entry can show "retrying" for a few seconds during the first start, while the People entry loads.
+
+## Two scales with the same person
+
+If two scales had a person with the same name, the two become one person. The migration keeps the weight history of the first scale, drops the other and logs a warning.
+
+A scale that had every person follows the full list, so people you add later can use it. A scale that had some of the people keeps those people.
+
+## Changed actions
+
+`reassign_measurement` and `reset_person_history` no longer accept `config_entry_id`. Remove the field from automations and scripts that set it.
+
+## Removed sensors
+
+Version 1.3.0 removed the body-composition sensors of the scale device. Dashboards and automations that use `sensor.<scale name>_body_fat` and similar IDs must use the person's sensor, for example `sensor.jupiter_body_fat`.
+
+:::see-also
+- [[guides/add-a-second-scale]]
+- [[reference/entities]]
+:::

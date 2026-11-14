@@ -1,0 +1,59 @@
+name: Tests
+
+# Runs the test suite, lint, format and type checks against the Home Assistant
+# version pinned in uv.lock.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'custom_components/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/tests.yaml'
+  pull_request:
+    paths:
+      - 'custom_components/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/tests.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: pytest, ruff, mypy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.14
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check custom_components tests
+
+      - name: Check formatting
+        run: uv run ruff format --check custom_components tests
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Test
+        run: uv run pytest
