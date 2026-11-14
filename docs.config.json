@@ -3,6 +3,13 @@
   "id": "anko-body-scale",
   "description": "Home Assistant integration for the ANKO iF1012D Bluetooth body scale: weight and body composition per person, read from passive BLE adverts.",
   "icon": "pulse",
+  "sections": [
+    { "id": "start", "title": "Start", "summary": "Install the integration and add your first scale." },
+    { "id": "guides", "title": "Guides", "summary": "Common tasks, as numbered steps." },
+    { "id": "reference", "title": "Reference", "summary": "Entities, attributes and configuration options." },
+    { "id": "concepts", "title": "Concepts", "summary": "How the integration works and why." },
+    { "id": "develop", "title": "Develop", "summary": "Build, test and release the integration." }
+  ],
   "versionFrom": "custom_components/anko_scale/manifest.json",
   "repo": "https://github.com/belikh/ha-anko-body-scale",
   "siteUrl": "https://docs.jupiter.au/anko-body-scale",
